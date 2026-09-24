@@ -1,0 +1,30 @@
+{
+    "json": "https://raw.githubusercontent.com/lafefspietz/twpa-noise-measurement-fall-2026/refs/heads/main/spore.json",
+    "php": "https://raw.githubusercontent.com/lafefspietz/twpa-noise-measurement-fall-2026/refs/heads/main/spore.php",
+    "files": [
+        "README.md",
+        "branch.html",
+        "create-branch.php",
+        "delete-branch.html",
+        "delete-branch.php",
+        "delete-file.html",
+        "delete-file.php",
+        "editor.html",
+        "index.html",
+        "list-branches.php",
+        "list-files.php",
+        "load-file.php",
+        "noisecube.css",
+        "noisecube.html",
+        "noisecube.js",
+        "noisecube.json",
+        "noisecube.py",
+        "qrcode.html",
+        "readme.html",
+        "save-file.php",
+        "spore.html",
+        "spore.js",
+        "spore.json",
+        "spore.php"
+    ]
+}

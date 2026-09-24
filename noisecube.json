@@ -1,0 +1,405 @@
+{
+    "controls": [
+        {
+            "knob_mode": "qubit_flux_bias",
+            "knobs": [
+                [
+                    0,
+                    0,
+                    0
+                ],
+                [
+                    0,
+                    0,
+                    0
+                ],
+                [
+                    0,
+                    0,
+                    0
+                ]
+            ],
+            "quantities": [
+                "dc_offset",
+                "ac_vpp",
+                "ac_frequency"
+            ],
+            "units": [
+                "V",
+                "V",
+                "Hz"
+            ],
+            "multipliers": [
+                [
+                    0.1,
+                    0.01,
+                    0.001
+                ],
+                [
+                    0.1,
+                    0.01,
+                    0.001
+                ],
+                [
+                    100,
+                    10,
+                    1
+                ]
+            ],
+            "max": [
+                1,
+                1,
+                5000
+            ],
+            "min": [
+                -1,
+                -1,
+                100
+            ],
+            "defaults": [
+                0,
+                0,
+                440
+            ],
+            "values": [
+                0,
+                0,
+                440
+            ]
+        },
+        {
+            "knob_mode": "noise_source_bias",
+            "knobs": [
+                [
+                    0,
+                    0,
+                    0
+                ],
+                [
+                    0,
+                    0,
+                    0
+                ],
+                [
+                    0,
+                    0,
+                    0
+                ]
+            ],
+            "quantities": [
+                "dc_offset",
+                "ac_vpp",
+                "ac_frequency"
+            ],
+            "units": [
+                "V",
+                "V",
+                "Hz"
+            ],
+            "multipliers": [
+                [
+                    0.1,
+                    0.01,
+                    0.001
+                ],
+                [
+                    0.1,
+                    0.01,
+                    0.001
+                ],
+                [
+                    100,
+                    10,
+                    1
+                ]
+            ],
+            "max": [
+                1,
+                1,
+                5000
+            ],
+            "min": [
+                -1,
+                -1,
+                100
+            ],
+            "defaults": [
+                0,
+                0,
+                440
+            ],
+            "values": [
+                0,
+                0,
+                440
+            ]
+        },
+        {
+            "knob_mode": "radio_pump",
+            "knobs": [
+                [
+                    0,
+                    0,
+                    0
+                ],
+                [
+                    0,
+                    0,
+                    0
+                ]
+            ],
+            "quantities": [
+                "power",
+                "frequency"
+            ],
+            "units": [
+                "dBm",
+                "GHz"
+            ],
+            "multipliers": [
+                [
+                    0.1,
+                    0.01,
+                    0.001
+                ],
+                [
+                    0.1,
+                    0.01,
+                    0.001
+                ]
+            ],
+            "max": [
+                0,
+                9
+            ],
+            "min": [
+                -40,
+                4
+            ],
+            "defaults": [
+                -26,
+                6
+            ],
+            "values": [
+                -26,
+                6
+            ]
+        },
+        {
+            "knob_mode": "radio_probe",
+            "knobs": [
+                [
+                    0,
+                    0,
+                    0
+                ],
+                [
+                    0,
+                    0,
+                    0
+                ],
+                [
+                    0,
+                    0,
+                    0
+                ]
+            ],
+            "quantities": [
+                "power",
+                "frequency",
+                "programmable_attenuator"
+            ],
+            "units": [
+                "dBm",
+                "GHz",
+                "dB"
+            ],
+            "multipliers": [
+                [
+                    0.1,
+                    0.01,
+                    0.001
+                ],
+                [
+                    0.1,
+                    0.01,
+                    0.001
+                ],
+                [
+                    10,
+                    1,
+                    0.1
+                ]
+            ],
+            "max": [
+                0,
+                9,
+                63
+            ],
+            "min": [
+                -60,
+                4,
+                0
+            ],
+            "defaults": [
+                -26,
+                5.5,
+                30
+            ],
+            "values": [
+                -26,
+                5.5,
+                30
+            ]
+        },
+        {
+            "knob_mode": "frequency_sweep",
+            "knobs": [
+                [
+                    0,
+                    0,
+                    0
+                ],
+                [
+                    0,
+                    0,
+                    0
+                ],
+                [
+                    0,
+                    0,
+                    0
+                ]
+            ],
+            "quantities": [
+                "fstart",
+                "fstop",
+                "numpoints"
+            ],
+            "units": [
+                "GHz",
+                "GHz",
+                " points"
+            ],
+            "multipliers": [
+                [
+                    0.1,
+                    0.01,
+                    0.001
+                ],
+                [
+                    0.1,
+                    0.01,
+                    0.001
+                ],
+                [
+                    100,
+                    10,
+                    1
+                ]
+            ],
+            "max": [
+                9,
+                9
+            ],
+            "min": [
+                4,
+                4,
+                10
+            ],
+            "defaults": [
+                4,
+                8,
+                101
+            ],
+            "values": [
+                4,
+                8,
+                101
+            ]
+        },
+        {
+            "knob_mode": "bandwidths",
+            "knobs": [
+                [
+                    0,
+                    0,
+                    0
+                ],
+                [
+                    0,
+                    0,
+                    0
+                ],
+                [
+                    0,
+                    0,
+                    0
+                ]
+            ],
+            "quantities": [
+                "vna_ifbw",
+                "spa_rbw",
+                "spa_vbw"
+            ],
+            "units": [
+                "kHz",
+                "MHz",
+                "Hz"
+            ],
+            "multipliers": [
+                [
+                    1,
+                    0.1,
+                    0.01
+                ],
+                [
+                    1,
+                    0.1,
+                    0.01
+                ],
+                [
+                    1000,
+                    100,
+                    10
+                ]
+            ],
+            "max": [
+                1000,
+                5,
+                10000
+            ],
+            "min": [
+                0.01,
+                0.01,
+                10
+            ],
+            "defaults": [
+                1,
+                1,
+                1000
+            ],
+            "values": [
+                1,
+                1,
+                1000
+            ]
+        },
+        {
+            "knob_mode": "vna/spa mode"
+        },
+        {
+            "knob_mode": "probe on/off"
+        },
+        {
+            "knob_mode": "pump on/off"
+        }
+    ],
+    "spectra": [],
+    "knob_history": [],
+    "fghz": [],
+    "audio_frequency": [],
+    "pump_on": false,
+    "probe_on": false,
+    "spa_mode": false
+}

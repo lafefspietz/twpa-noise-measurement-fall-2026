@@ -1,0 +1,20 @@
+html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+#p5-canvas-container {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: calc(100vw - 20px);
+    height: calc(100vh - 20px);
+}
+#p5-canvas-container canvas {
+    cursor:pointer;
+    display: block;
+    border:solid;
+    border-width:0.5px;
+    width: 100% !important;
+    height: 100% !important;
+}
