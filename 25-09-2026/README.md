@@ -7,3 +7,6 @@
 ![](1790355388-qubit-sweep-plot.png)
 ![](1790355944-qubit-sweep-plot.png)
 
+![](1790364663-vna-average-plot.png)
+
+### ![](1790364663-vna-average.json)
