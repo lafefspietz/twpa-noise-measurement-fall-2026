@@ -1,193 +1,139 @@
- <!doctype html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-<!--Stop Google:-->
-<META NAME="robots" CONTENT="noindex,nofollow">
-    
-<link href="data:image/x-icon;base64,AAABAAEAEBAQAAEABAAoAQAAFgAAACgAAAAQAAAAIAAAAAEABAAAAAAAgAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAADw8OAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAABAAEAAAAQAAEAERAAABARAQEREQAAEBEBAAEAAAAREREAAQAAABEAEQABAAAAEQARAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//wAA//8AAP//AAD//wAA3u8AAN7HAADSgwAA0u8AAMDvAADM7wAAzO8AAP//AAD//wAA//8AAP//AAD//wAA" rel="icon" type="image/x-icon">
-
-    
-<!--
-ace.js project home:
-https://ace.c9.io/
-
-list of languages:
-https://cloud9-sdk.readme.io/docs/language-mode
-
-
--->    
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.2.6/ace.js" type="text/javascript" charset="utf-8"></script>
-    <script src = "https://cdnjs.cloudflare.com/ajax/libs/showdown/1.8.6/showdown.js"></script>
-
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
-        <script>
-            MathJax.Hub.Config({
-                tex2jax: {
-                inlineMath: [['$','$'], ['\\(','\\)']],
-                processEscapes: true,
-                processClass: "mathjax",
-                ignoreClass: "no-mathjax"
-                }
-            });//			MathJax.Hub.Typeset();//tell Mathjax to update the math
-        </script>
-        <script src ="spore.js"></script>
-<title>README.md EDITOR</title>
+   <meta charset="utf-8">
+   <!--
+spore
+   -->
+  <link href="data:image/x-icon;base64,AAABAAEAEBAQAAEABAAoAQAAFgAAACgAAAAQAAAAIAAAAAEABAAAAAAAgAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB/3gAA//8AAPb/AAD//wAA//8AAP/7AAD/3wAA3/8AAP7/AAD//wAA//8AAP93AADv/wAA//8AAP//AAB+/gAA" rel="icon" type="image/x-icon">
+  <title>data</title>  
+  <script src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>   
 </head>
 <body>
-<h1>README.md</h1>
-<div id = "lightdarkbutton" class = "button">--> DARK MODE <--</div>
-<div class = "no-mathjax" id = "maineditor" contenteditable="true" spellcheck="false"></div>
-<div class = "mathjax" id = "displayscroll"></div>
-
+    <h1>data</h1>
+    <div id = "qrcode"></div>
+    <div id = "html-files"></div>
+    <div id = "directories"></div>
+    <textarea id = "wall"></textarea>
 <script>
 
-editor = ace.edit("maineditor");
-editor.setTheme("ace/theme/github");
-//editor.setTheme("ace/theme/vibrant_ink");
-//editor.getSession().setMode("ace/mode/html");
-editor.getSession().setMode("ace/mode/markdown");
-
-editor.getSession().setUseWrapMode(true);
-editor.$blockScrolling = Infinity;
-
-var converter = new showdown.Converter();
-// for more on options see here:
-// https://github.com/showdownjs/showdown/wiki/Showdown-Options
-converter.setOption('literalMidWordUnderscores', 'true');
-converter.setOption('tables', 'true')
-    
-currentFile = "README.md";
-
-load_file(currentFile).then(
-    readme => {
-        rawhtml = converter.makeHtml(readme);
-        document.getElementById("displayscroll").innerHTML = rawhtml;
-        MathJax.Hub.Typeset();//tell Mathjax to update the math
-        editor.setValue(readme);
-    }
-);
-
-
-
-document.getElementById("maineditor").onkeyup = function(){
-    data = encodeURIComponent(editor.getSession().getValue());
-    save_file(currentFile,data);
-}
-
-
-lightmode = true;
-document.getElementById("lightdarkbutton").style.color = "black";
-document.getElementById("lightdarkbutton").style.borderColor = "black";
-
-document.getElementById("displayscroll").style.backgroundColor = "white";
-document.getElementById("displayscroll").style.color = "black";        
-document.getElementById("lightdarkbutton").innerHTML = "DARK MODE";
-editor.setTheme("ace/theme/github");
-var links = document.getElementById("displayscroll").getElementsByTagName("a");
-for(var index = 0;index < links.length;index++){
-    links[index].style.color = "blue";
-}
-
-document.getElementById("lightdarkbutton").onclick = function(){
-    lightmode = !lightmode;
-    if(lightmode){
-        document.getElementById("lightdarkbutton").style.color = "black";
-        document.getElementById("lightdarkbutton").style.borderColor = "black";
-        document.getElementById("lightdarkbutton").style.backgroundColor = "white";
-        document.getElementById("displayscroll").style.backgroundColor = "white";
-        document.getElementById("displayscroll").style.color = "black";        
-        document.getElementById("lightdarkbutton").innerHTML = "DARK MODE";
-        editor.setTheme("ace/theme/github");
-        var links = document.getElementById("displayscroll").getElementsByTagName("a");
-        for(var index = 0;index < links.length;index++){
-            links[index].style.color = "blue";
+fetch('list-files.php')
+    .then(xhr => xhr.json())
+    .then(files => {
+        for (var index = 0; index < files.length; index++) {
+            if (files[index].substring(files[index].length - 5, files[index].length) == ".html" && files[index] != "index.html") {
+                var newa = document.createElement("A");
+                newa.href = files[index];
+                newa.innerHTML = files[index];
+                document.getElementById("html-files").appendChild(newa);
+            }
         }
-    }
-    else{
-        
-        document.getElementById("lightdarkbutton").style.color = "white";
-        document.getElementById("lightdarkbutton").style.borderColor = "white";
-        document.getElementById("lightdarkbutton").style.backgroundColor = "#101010";
-        document.getElementById("displayscroll").style.backgroundColor = "#101010";        
-        document.getElementById("displayscroll").style.color = "white";        
-        document.getElementById("lightdarkbutton").innerHTML = "LIGHT MODE";        
-        editor.setTheme("ace/theme/vibrant_ink");
+    });
 
-        var links = document.getElementById("displayscroll").getElementsByTagName("a");
-        for(var index = 0;index < links.length;index++){
-            links[index].style.color = "#ff2cb4";
-        }        
-    }
+
+directories = [];
+
+fetch('list-directories.php')
+    .then(xhr => xhr.json())
+    .then(data => {
+        directories = data;
+        
+        var newa = document.createElement("A");
+        newa.innerHTML = "up a level (../)";
+        newa.href = "../";
+        document.getElementById("directories").appendChild(newa);
+        
+        for (var index = 0; index < directories.length; index++) {
+            var newa = document.createElement("A");
+            newa.innerHTML = directories[index] + "/";
+            newa.href = directories[index] + "/";
+            document.getElementById("directories").appendChild(newa);
+        }
+    });
+
+wall = "";
+fetch('load-file.php?filename=wall.txt')
+    .then(xhr => xhr.text())
+    .then(wall => {
+        document.getElementById("wall").value = wall;
+});
+
+
+document.getElementById("wall").onkeyup = function() {
+    wall = this.value;
+    data = encodeURIComponent(this.value);
+    fetch('save-file.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
+        body: 'data=' + data + '&filename=wall.txt'
+    });
+
 }
+
+codesquaresize = 150;
+qrcode = new QRCode(document.getElementById("qrcode"), {
+	text: window.location.href,
+	width: codesquaresize,
+	height: codesquaresize,
+	colorDark : "#000000",
+	colorLight : "#ffffff",
+	correctLevel : QRCode.CorrectLevel.H
+});
 
 </script>
 <style>
 body{
-    overflow:hidden;
     font-family:Arial;
-    background-color:#808080;
-}
-a{
-    color:blue;
-}
-input{
-    font-family:courier;
-    color:white;
 }
 h1{
     text-align:center;
+    font-size:4em;
 }
-#maineditor{
-    position:absolute;  
-    left:1em;
-    top:5em;
-    right:50%;
-    bottom:1em;
-    font-size:1em;
+p{
+    text-align:justify;
+    padding:1em 1em 1em 1em;
+    font-size:1.5em;
     border:solid;
+    display:block;
+    border-color:white;
+    border-width:10px;
+    border-radius:1em;
+    background-color:#0000ff;
+    color:white;
+    width:80%;
+    margin:auto;
+    margin-top:1em;
+
 }
-#displayscroll{
-    position:absolute;
-    left:55%;
-    right:1em;
-    bottom:1em;
-    top:5em;
+a{
+    text-align:center;
+    font-size:3em;
+    width:80%;
+    margin:auto;
+    display:block;
     border:solid;
-    border-width:3px;
-    overflow:scroll;
-    padding: 1em 1em 1em 1em;
-    background-color:white;
+    border-radius:0.5em;
+    border-width:0.5em;
+    color:black;
+    margin-top:1em;
+    margin-bottom:0.5em;
+    overflow-x:scroll;
 }
-#displayscroll img{
-    max-width:70%;
+#qrcode img{
     display:block;
     margin:auto;
 }
-.button{
-    cursor:pointer;
-    background-color:white;
-    
-}
-.button:hover{
-    background-color:green;
-}
-.button:active{
-    background-color:yellow;
-}
-#lightdarkbutton{
-    position:absolute;
-    right:10px;
-    top:10px;
-    width:10em;
-    text-align:center;
+#wall{
+    width:80%;
+    display:block;
+    margin:auto;
     border:solid;
-    border-radius:3px;
+    FONT-FAMILY:Arial;
     font-size:2em;
-    color:black;
+    height:20em;
+    padding:0.5em 0.5em 0.5em 0.5em;
+    border-radius:0.5em;
 }
-
 </style>
-
 </body>
 </html>
