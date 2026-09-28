@@ -55,3 +55,17 @@
 ![](1790367226-vna-average-plot.png)
 
 ### ![](1790367226-vna-average.json)
+
+![](power-sweep-1d.png)
+
+![](integration-statistics-1.png)
+
+![](integration-statistics-2.png)
+![](integration-statistics-3.png)
+![](integration-statistics-4.png)
+![](integration-statistics-5.png)
+![](integration-statistics-6.png)
+
+
+
+
