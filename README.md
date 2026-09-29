@@ -41,4 +41,6 @@ looking at averages, seeing how the noise integrates down:
 
 ![](28-09-2026/qubit-averages.png)
 
+And here is a data file with the full 100 averages reduced to an averaged set of traces
+
 Now we need to fit the qubit curve(with all its faults) to try to get approximate power calibration from vna and build the zero span power calibration at 5.58 GHz.  
