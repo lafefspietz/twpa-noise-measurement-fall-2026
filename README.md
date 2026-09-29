@@ -27,3 +27,18 @@ take 1000 averages and look at statistics
 ![](25-09-2026/integration-statistics-6.png)
 
 
+# Day 2: September 28, 2026
+
+Took another power sweep, with improved Jupyter  notebook at [vna-power-sweep.ipynb](vna-power-sweep.ipynb) but with very awkward data format of large numbers of raw linear real and imaginary values which were saved to look at statistics of averaging. Did the analysis afterward at home in the notebook [vna-power-sweep-plots.ipynb](vna-power-sweep-plots.ipynb).  There appears to be a lot of unwanted physics in the qubit structure, and a very non-textook shape of the curves.  We will proceed to fit anyway.
+
+![](28-09-2026/qubit-power-sweep.png)
+
+Moved qubit to V=0 bias which should be about 7 GHz, and repeated scan where qubit should have no impact:
+
+![](28-09-2026/no-qubit-power-sweep.png)
+
+looking at averages, seeing how the noise integrates down:
+
+![](28-09-2026/qubit-averages.png)
+
+Now we need to fit the qubit curve(with all its faults) to try to get approximate power calibration from vna and build the zero span power calibration at 5.58 GHz.  
