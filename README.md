@@ -49,13 +49,13 @@ Now we need to fit the qubit curve(with all its faults) to try to get approximat
 
 Set up both network analyzer and spectrum analyzer to be in zero span mode at frequency of 5.58 GHz, swept the voltage on the noise source and the power from the network analyzer and looked at how the spectrum analzyer responds to the sum of noise and signal, to calibrate noise against signal.
 
-![](noise-power-scan-plot-1.png)
+![](29-09-2026/noise-power-scan-plot-1.png)
 
-![](noise-power-scan-plot-2.png)
+![](29-09-2026/noise-power-scan-plot-2.png)
 
-![](noise-power-scan-plot-3.png)
+![](29-09-2026/noise-power-scan-plot-3.png)
 
-![](noise-power-scan-plot-4.png)
+![](29-09-2026/noise-power-scan-plot-4.png)
 
 
 
