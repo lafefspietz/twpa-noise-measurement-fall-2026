@@ -44,3 +44,21 @@ looking at averages, seeing how the noise integrates down:
 And here is a data file with the full 100 averages reduced to an averaged set of traces
 
 Now we need to fit the qubit curve(with all its faults) to try to get approximate power calibration from vna and build the zero span power calibration at 5.58 GHz.  
+
+# Day 3: September 29, 2026
+
+Set up both network analyzer and spectrum analyzer to be in zero span mode at frequency of 5.58 GHz, swept the voltage on the noise source and the power from the network analyzer and looked at how the spectrum analzyer responds to the sum of noise and signal, to calibrate noise against signal.
+
+![](noise-power-scan-plot-1.png)
+
+![](noise-power-scan-plot-2.png)
+
+![](noise-power-scan-plot-3.png)
+
+![](noise-power-scan-plot-4.png)
+
+
+
+
+
+
