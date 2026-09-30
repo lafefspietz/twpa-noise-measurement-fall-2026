@@ -58,6 +58,21 @@ Set up both network analyzer and spectrum analyzer to be in zero span mode at fr
 ![](29-09-2026/noise-power-scan-plot-4.png)
 
 
+# Day 4: September 30
+
+Spent time on administrative tasks. Filled LN2 trap. 
+
+Measured more sweeps of vna power in zero span on both vna and spa with zero bias on noise source for various settings:
+
+![](30-09-2026/1790801324-zero-bias-power-scan-plot.png)
+
+![](30-09-2026/1790802201-zero-bias-power-scan-plot.png)
+
+![](30-09-2026/1790803157-zero-bias-power-scan-plot.png)
+
+![](30-09-2026/1790803475-zero-bias-power-scan-plot.png)
+
+
 
 
 
