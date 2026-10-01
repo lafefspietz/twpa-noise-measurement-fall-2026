@@ -48,3 +48,7 @@
 ![](1790873910-noise-sweep-zero-power-plot.png)
 
 ### [1790873910-noise-sweep-zero-power.json](1790873910-noise-sweep-zero-power.json)
+
+![](noise-plot-stack-1.png)
+
+![](noise-plot-stack-2.png)

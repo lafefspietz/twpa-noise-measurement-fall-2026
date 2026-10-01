@@ -73,7 +73,13 @@ Measured more sweeps of vna power in zero span on both vna and spa with zero bia
 ![](30-09-2026/1790803475-zero-bias-power-scan-plot.png)
 
 
+# Day 5: October 1
 
+Attempting to make sense of spectrum analyzer scaling, which appears to be very much not what it claims to be
+
+![](01-10-2026/noise-plot-stack-1.png)
+
+![](01-10-2026/noise-plot-stack-2.png)
 
 
 
