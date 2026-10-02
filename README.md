@@ -81,5 +81,101 @@ Attempting to make sense of spectrum analyzer scaling, which appears to be very 
 
 ![](01-10-2026/noise-plot-stack-2.png)
 
+# Day 6: October 2
+
+Spent a bunch of time re-learning how frustrating the HP E7405A is to use, how the resolution bandwidth pretends to be controllable but actually only has a few set allowed values, and how both the bandwidth and reference level totally change response and how frustrating the hidden variables are in regards to mode.  In particular, I am now using it in the following mode all the time:
+
+
+```
+spa.write(':DET SAMP')  
+```
+which gets it out of the default peak detect mode which breaks things.
+
+So doing Y factor over and over is the correct approach. And so we now build python and json required to do that with the noise diode.
+
+
+Here is the noise diode:
+
+![](noise-diode-1.png)
+![](noise-diode-2.png)
+
+
+And here are the Y plots of the cal data provided by the manufacturer:
+
+![](02-10-2026/noise-diode-cal-1.png)
+![](02-10-2026/noise-diode-cal-2.png)
+![](02-10-2026/noise-diode-cal-3.png)
+
+Here is the code to make the json we will use for cal:
+
+```
+
+import json
+import matplotlib.pyplot as plt
+import numpy as np
+import matplotlib.ticker as ticker
+noise_diode = {}
+noise_diode['jupyter_url'] = "https://github.com/lafefspietz/twpa-noise-measurement-fall-2026/blob/main/noise-diode.ipynb"
+noise_diode['serial_number'] = "MY61410135"
+noise_diode['model'] = "346B"
+noise_diode['manufacturer'] = "Keysight"
+noise_diode['voltage'] = "28"
+noise_diode['fghz_cal'] = [0.01,0.1,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]
+noise_diode['ENR_cal'] = [
+    15.24,
+    15.22,
+    15.13,
+    15.13,
+    14.94,
+    14.85,
+    14.81,
+    14.78,
+    14.80,
+    14.78,
+    14.86,
+    14.83,
+    14.76,
+    14.90,
+    15.00,
+    15.08,
+    15.28,
+    15.35,
+    15.16,
+    14.58
+]
+noise_diode['diode_noise_temperature_hot_cal'] = []
+for index in np.arange(len(noise_diode['ENR_cal'])):
+    noise_temperature_hot = 290.0*(10**(noise_diode['ENR_cal'][index]/10))
+    noise_diode['diode_noise_temperature_hot_cal'].append(noise_temperature_hot)
+
+noise_diode['fghz'] = np.linspace(3, 12,1001)
+noise_diode['diode_noise_temperature_hot'] = np.interp(noise_diode['fghz'], noise_diode['fghz_cal'], noise_diode['diode_noise_temperature_hot_cal'])
+noise_diode['diode_noise_temperature_cold'] = noise_diode['fghz']*0 + 290
+k_boltzmann = 1.380649e-23
+planck_constant = 6.62607015e-34
+noise_diode['k_boltzmann'] = k_boltzmann
+noise_diode['planck_constant'] = planck_constant
+noise_diode['diode_noise_number_hot'] = k_boltzmann*noise_diode['diode_noise_temperature_hot']/(planck_constant*1e9*noise_diode['fghz'])
+noise_diode['diode_noise_number_cold'] = k_boltzmann*noise_diode['diode_noise_temperature_cold']/(planck_constant*1e9*noise_diode['fghz'])
+
+noise_diode['fghz'] = np.round(noise_diode['fghz'], 3).tolist() # 3 decimals for clean 0.009 steps
+noise_diode['diode_noise_temperature_hot'] = np.round(noise_diode['diode_noise_temperature_hot'], 2).tolist()
+noise_diode['diode_noise_temperature_cold'] = np.round(noise_diode['diode_noise_temperature_cold'], 2).tolist()
+noise_diode['diode_noise_number_hot'] = np.round(noise_diode['diode_noise_number_hot'], 4).tolist()
+noise_diode['diode_noise_number_cold'] = np.round(noise_diode['diode_noise_number_cold'], 4).tolist()
+
+with open("noise-diode.json", "w", encoding="utf-8") as f:
+    json.dump(noise_diode, f, indent=4)
+    
+```
+And here is the jupyter notebook:
+
+[noise-diode.ipynb](noise-diode.ipynb)
+
+And here is the json:
+
+[noise-diode.json](noise-diode.json)
+
+
 
 
