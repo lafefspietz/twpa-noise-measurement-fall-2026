@@ -176,6 +176,17 @@ And here is the json:
 
 [noise-diode.json](noise-diode.json)
 
+# Day 7: October 5, 2026
 
+Looking at fits from [qubit-power-fits.ipynb](qubit-power-fits.ipynb) to get the attenuation factor A:
+
+![](28-09-2026/qubit-power-fit-1.png)
+![](28-09-2026/qubit-power-fit-2.png)
+![](28-09-2026/qubit-power-fit-3.png)
+
+And here is a cartoon of the model we are using for the Y factor:
+
+
+![](quantum-y-factor-cartoon.png)
 
 
