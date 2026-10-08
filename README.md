@@ -190,3 +190,24 @@ And here is a cartoon of the model we are using for the Y factor:
 ![](quantum-y-factor-cartoon.png)
 
 
+![](08-10-2026/noise-diode-hot.png)
+
+![](08-10-2026/noise-diode-cold.png)
+
+$$
+n_{out diode on} = G_{warm RX}(n_{warm RX} + n_{diode hot})
+$$
+
+$$
+n_{out diode off} = G_{warm RX}(n_{warm RX} + n_{diode cold})
+$$
+
+$$
+G_{warm RX} = \frac{n_{out diode on} - n_{out diode off}}{n_{diode hot} - n_{diode cold}}
+$$
+
+$$
+n_{warm RX} = \frac{ n_{out diode on} }{ G_{warm RX} } - n_{diode hot}
+$$
+
+
