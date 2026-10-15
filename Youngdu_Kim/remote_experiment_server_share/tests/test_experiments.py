@@ -552,6 +552,8 @@ def test_yf_finish_off_samples_and_clipping(client, cfg):
     assert any("reference level (1e-12 W)" in n and "may have clipped" in n for n in job["notes"])
     rec = yf_record(cfg)
     assert np.array(rec["samples_w"]).shape == (5, 1, 401) and rec["spa_setup"]["ref_level"] == 1e-12
+    assert rec["params"]["ref_level_w"] == 1e-12 and "ref_level_dbm" not in rec["params"]
+    assert rec["params"]["flux_bias_v"] == -0.2
     assert rec["finish"] == ["noise source at 0 V, off", "flux bias at 0 V, off"]
     ns = client.get("/api/noise_source_bias/state").json()
     assert ns["output"] is False and ns["offset_v"] == 0
@@ -608,6 +610,9 @@ def test_yf_uses_the_rbw_vbw_the_sa_took(client, cfg):
     assert rec["rbw_hz"] == 3e6 and rec["vbw_hz"] == 3e3
     assert rec["sweep_time_s"] == 0.042                           # 400 / (pi 3 kHz)
     assert rec["params"]["rbw_hz"] == 2e6                         # what was typed stays in params
+    # only what the run used: the reference level in dBm (the default), no pump settings (pump left as it is)
+    assert rec["params"]["ref_level_dbm"] == -45 and "ref_level_w" not in rec["params"]
+    assert not {"pump_frequency_hz", "pump_power_dbm", "pump_settle_s", "flux_bias_v"} & set(rec["params"])
     full = client.get(f"/api/jobs/{job['id']}?since=0").json()
     assert "RBW 3000 kHz, VBW 3 kHz, sweep 0.042 s" in full["axis"]["title"]
 

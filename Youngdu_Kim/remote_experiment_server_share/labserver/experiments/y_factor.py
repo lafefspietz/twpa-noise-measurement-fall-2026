@@ -50,7 +50,7 @@ MIN_SWEEP_S = 0.01          # floor for the default sweep time (the E7405A can s
 SA_KEYS = ("detector", "vbw_hz", "rbw_hz", "center_hz", "span_hz", "sweep_time_s", "scale", "unit", "ref_level")
 
 SWEEP = "Noise source bias sweep"
-SA = "Spectrum analyzer (zero span)"
+SA = "Spectrum analyzer (zero span, sample detector)"
 PUMP = "TWPA pump"
 QUBIT = "Qubit flux bias"
 END = "Before and after"
@@ -121,8 +121,6 @@ class YFactorMeasurement(Experiment):
               help="Separate from the unit (the sweep always reads in W). In LIN our E7405A only reads right "
                    "from the reference level down to about 20 dB below it: above it clips, below it the "
                    "trace sits on a floor near ref - 20 dB. LOG has no such window. Restored when done."),
-        Param("detector", "detector", kind="select", default="SAMP", group=SA,
-              options=[["SAMP", "sample (as in the notebooks)"], ["AVER", "average (not tried on our ESA yet)"]]),
         Param("ref_level_unit", "reference level in", kind="select", default="dbm", group=SA,
               options=[["dbm", "dBm"], ["w", "W"]],
               help="Keep it above the noise power at the highest bias, or the SA clips. The sweep "
@@ -395,7 +393,7 @@ class YFactorMeasurement(Experiment):
             if err:
                 raise RuntimeError(err)
             rec = job.record
-            rec.update(kind="experiment", experiment=self.id, params=p, note=p["note"], sim=mgr.sim,
+            rec.update(kind="experiment", experiment=self.id, params=self.recorded_params(p), note=p["note"], sim=mgr.sim,
                        fridge_temperature_k=p["fridge_temperature_k"], frequency_hz=p["center_hz"],
                        bias_v=[], **{"pass": []}, traces=[], point_start_time=[], point_end_time=[],
                        power_w=[], power_std_w=[], trace_mean_w=[], trace_std_w=[], instruments=snapshot)
@@ -428,7 +426,7 @@ class YFactorMeasurement(Experiment):
         # RBW/VBW steps (1-3-10), so they are read back before anything depends on them:
         # the default sweep time is worked out from the values the SA took.
         # the scale goes before the unit, in case the SA changes the unit with it
-        sa = mgr.apply("spa", owner, detector=p["detector"], vbw_hz=p["vbw_hz"], rbw_hz=p["rbw_hz"],
+        sa = mgr.apply("spa", owner, detector="SAMP", vbw_hz=p["vbw_hz"], rbw_hz=p["rbw_hz"],
                        center_hz=p["center_hz"], span_hz=0, scale=p["scale"], unit="W")
         for key, want, label in (("rbw_hz", p["rbw_hz"], "RBW"), ("vbw_hz", p["vbw_hz"], "VBW")):
             if abs(sa[key] - want) > 1e-6 * want:

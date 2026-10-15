@@ -115,6 +115,13 @@ class Experiment:
         if bad:
             errors.append(f"{what} outside the limit {limit_text(lim)}{' ' + unit if unit else ''}: {bad}")
 
+    def recorded_params(self, p: dict) -> dict:
+        """p without the params the form hides for these choices (e.g. the reference level in W
+        when it was typed in dBm, the pump settings when the pump is left off), so a record
+        only has values the run used."""
+        hidden = {q.key for q in self.params if not q.shown(p)}
+        return {k: v for k, v in p.items() if k not in hidden}
+
     def saved_defaults(self) -> dict:
         """Defaults saved from the experiments tab (settings.local.yaml), by key."""
         known = {p.key for p in self.params}

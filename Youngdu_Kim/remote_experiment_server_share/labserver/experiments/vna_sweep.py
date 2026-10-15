@@ -147,7 +147,7 @@ class VnaMapSweep(Experiment):
                 raise RuntimeError(f"cannot read the VNA: {vna0['error']}")
             freqs = np.linspace(p["start_hz"], p["stop_hz"], p["points"])
             rec = job.record
-            rec.update(kind="experiment", experiment=self.id, params=p, note=p["note"], sim=mgr.sim,
+            rec.update(kind="experiment", experiment=self.id, params=self.recorded_params(p), note=p["note"], sim=mgr.sim,
                        frequency_hz=freqs, fghz=freqs / 1e9, **{key: []}, averages=[], point_start_time=[], point_end_time=[],
                        s_real=[], s_imag=[], instruments=snapshot)
             if p["save_all_traces"]:
