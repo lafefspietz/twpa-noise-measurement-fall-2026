@@ -1,0 +1,4 @@
+# Stored as LF; checked out as CRLF on Windows and LF on Ubuntu.
+* text=auto
+*.sh text eol=lf
+*.bat text eol=crlf

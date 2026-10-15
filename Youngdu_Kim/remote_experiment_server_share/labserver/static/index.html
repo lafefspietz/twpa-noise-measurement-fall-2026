@@ -1,0 +1,1355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Remote Experiment Server</title>
+<style>
+  body { margin: 12px; background: #fff; color: #000; font: 14px/1.4 "Courier New", monospace; }
+  h1 { font: bold 18px Arial, sans-serif; margin: 0 12px 0 0; display: inline; }
+  button { font: inherit; border: 1px solid #000; background: #fff; padding: 2px 8px; cursor: pointer; }
+  button:active { background: #000; color: #fff; }
+  input, select { font: inherit; border: 1px solid #000; padding: 1px 3px; }
+  input[type=number] { width: 110px; }
+  .row { margin: 6px 0; }
+  .muted { color: #666; }
+  #plot { display: block; width: 100%; height: 420px; border: 1px solid #000; cursor: crosshair; }
+  .fields label { margin-right: 14px; white-space: nowrap; display: inline-block; }
+  #controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 620px), 1fr)); column-gap: 40px; }
+  .control { border-top: 1px solid #000; padding: 8px 0; }
+  .control .title { font-weight: bold; display: inline-block; width: 110px; }
+  .param { display: inline-block; vertical-align: top; margin-right: 24px; }
+  .switch { margin: 6px 0; }
+  .switch .name { display: inline-block; width: 130px; }
+  .switch label { margin-right: 14px; }
+  .param .value { font-size: 18px; }
+  .knobs { margin-top: 4px; }
+  .knob { display: inline-block; text-align: center; margin-right: 10px; }
+  .knob canvas { display: block; cursor: ns-resize; }
+  #msg { min-height: 1.4em; font-weight: bold; overflow-wrap: anywhere; }
+  #tabs { border-bottom: 1px solid #000; margin: 8px 0 10px; }
+  #tabs a { display: inline-block; padding: 3px 14px; margin-bottom: -1px; color: #000; text-decoration: none;
+            border: 1px solid transparent; font-weight: bold; }
+  #tabs a.on { border: 1px solid #000; border-bottom-color: #fff; }
+  .exp-item { display: block; border-top: 1px solid #000; padding: 8px 0; color: #000; text-decoration: none; }
+  .exp-item:hover .exp-title { text-decoration: underline; }
+  .exp-title { font-weight: bold; }
+  #expForm fieldset { border: 1px solid #000; margin: 10px 0; padding: 4px 10px 8px; }
+  #expForm legend { font-weight: bold; padding: 0 4px; }
+  #expForm .f { margin: 5px 0; }
+  #expForm .f > span:first-child { display: inline-block; min-width: 190px; }
+  #expForm input[type=text] { width: 320px; max-width: 100%; }
+  #expForm .help { color: #666; margin-left: 194px; font-size: 12px; }
+  #expPlan .err { font-weight: bold; }
+  #expPlan .warn { font-weight: bold; color: #555; }
+  #expPlan table { border-collapse: collapse; margin-top: 6px; }
+  #expPlan td, #expPlan th { border: 1px solid #000; padding: 1px 8px; text-align: right; }
+  #expPlan .scroll { max-height: 320px; overflow-y: auto; display: inline-block; }
+  table.segs { border-collapse: collapse; margin: 4px 0; }
+  table.segs th { font-weight: normal; text-align: left; padding: 0 6px 0 0; }
+  table.segs td { padding: 1px 6px 1px 0; }
+  table.segs input[type=number] { width: 90px; }
+  #mapPlot { display: block; width: 100%; height: 480px; border: 1px solid #000; cursor: crosshair; }
+  #cuts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 10px; margin-top: 8px; }
+  #cuts canvas { display: block; width: 100%; height: 260px; border: 1px solid #000; }
+  #xyPlot { display: block; width: 100%; height: 420px; border: 1px solid #000; }
+  .control .note { font-weight: bold; margin-left: 10px; }
+  #cfgForm fieldset { border: 1px solid #000; margin: 10px 0; padding: 4px 10px 8px; }
+  #cfgForm legend { font-weight: bold; padding: 0 4px; }
+  #cfgForm .group { font-weight: bold; margin: 10px 0 2px; }
+  #cfgForm .f { margin: 3px 0; }
+  #cfgForm .f > .name { display: inline-block; min-width: 260px; }
+  #cfgForm .f.dirty > .name { font-weight: bold; }
+  #cfgForm .f.dirty > .name::after { content: " *"; }
+  #cfgForm input[type=number] { width: 100px; }
+  #cfgForm .shelp { color: #666; font-size: 12px; margin-bottom: 4px; }
+  #cfgForm .help { color: #666; font-size: 12px; margin-left: 264px; }
+</style>
+</head>
+<body>
+
+<div class="row">
+  <h1>Remote Experiment Server</h1>
+  <span id="conn">connecting...</span>
+  &nbsp;<button id="allOff" title="Turn every output off (pump, signal, flux bias, VNA RF, hot wire). A running experiment stops; the server keeps running.">outputs off</button>
+  <button id="quit" title="Stop the server. Instrument outputs stay as they are.">shut down server</button>
+</div>
+<div id="msg"></div>
+
+<div id="tabs"><a href="#instruments" data-tab="instruments">instruments</a><a href="#experiments" data-tab="experiments">experiments</a><a href="#settings" data-tab="settings">settings</a></div>
+
+<div id="tab-instruments">
+<div class="row">
+  view: <label><input type="radio" name="view" value="spa" checked> SA</label>
+  <label><input type="radio" name="view" value="vna"> VNA</label>
+  <span id="vnaShow" hidden>&nbsp;show: <select id="vnaQty"><option value="db">|S21| dB</option><option value="deg">phase deg</option></select></span>
+  &nbsp;<button id="hold">hold</button>
+  &nbsp;avg <input type="number" id="avgCount" min="1" step="1" value="1" style="width: 60px"
+    title="running average over the last N traces (1 = off); restarts by itself when a setting changes">
+  <button id="avgRestart" title="start the average over">restart</button>
+  &nbsp;y: <label><input type="checkbox" id="autoY" checked> auto</label>
+  <input type="number" id="yMin" step="any" placeholder="min"> <input type="number" id="yMax" step="any" placeholder="max">
+  &nbsp;<span id="live" class="muted"></span>
+</div>
+<canvas id="plot"></canvas>
+<div class="row">
+  save: <input id="label" placeholder="label" size="16"> <input id="note" placeholder="note" size="40">
+  <button id="save">save trace</button>
+  &nbsp;to: <span id="dirName"></span> <button id="pickDir" hidden>choose folder</button> <button id="clearDir" hidden>use downloads</button>
+  <span id="saved" class="muted"></span>
+</div>
+
+<div class="row fields" id="settings"></div>
+<div class="row"><button id="apply">apply</button>
+  <button id="refresh" title="Read the current values of every instrument. The page never polls them on its own; save trace also refreshes them.">refresh</button>
+  <span id="refreshed" class="muted"></span></div>
+<div class="row" id="alignRow">SA alignment: <span id="alignStatus" class="muted">--</span>
+  <button id="alignBtn" title="Align Now, All, as on the front panel: about 3-6 min. The SA is reserved meanwhile (the live view pauses), and it can't be stopped once started. Without a cable from AMPTD REF OUT to INPUT, the RF part is skipped and only the filters (IF) are aligned.">do align</button></div>
+
+<div id="controls"></div>
+</div>
+
+<div id="tab-experiments" hidden>
+  <div id="expList"></div>
+  <div id="expPage" hidden>
+    <div class="row"><a href="#experiments">&larr; all experiments</a></div>
+    <h2 id="expTitle" style="font: bold 16px Arial, sans-serif; margin: 8px 0 2px"></h2>
+    <div id="expSummary" class="muted"></div>
+    <div id="expDefNote" class="muted"></div>
+    <div id="expForm"></div>
+    <div class="row">
+      <button id="expLoad" title="Fill the fields marked * with the values the instruments have now">load current values *</button>
+      <button id="expDefaults" title="Back to the defaults: the saved ones, else the built-in ones">defaults</button>
+      <button id="expSaveDefaults" title="Save this form as the defaults, for every browser (settings.local.yaml on the server)">save as defaults</button>
+      <button id="expStart" disabled>start</button>
+      <button id="expStop" hidden title="Stops after the trace being read; the points so far are saved">stop</button>
+    </div>
+    <div id="expRun" hidden>
+      <div class="row"><b>result</b> <span id="runStatus"></span> <a id="runFile"></a></div>
+      <div id="mapView">
+      <div class="row">show: <select id="mapQty"><option value="db">|S21| dB</option><option value="deg">phase deg</option></select>
+        &nbsp;color: <label><input type="checkbox" id="mapAuto" checked> auto</label>
+        <input type="number" id="mapMin" step="any" placeholder="min"> <input type="number" id="mapMax" step="any" placeholder="max">
+        &nbsp;<span class="muted">hover the map for cuts, click to pin the cursor</span></div>
+      <canvas id="mapPlot"></canvas>
+      <div class="row" id="mapReadout"></div>
+      <div id="cuts"><canvas id="cutF"></canvas><canvas id="cutP"></canvas></div>
+      </div>
+      <div id="xyView" hidden>
+      <div class="row">show: <select id="xyQty"><option value="nw">nW</option><option value="dbm">dBm</option></select>
+        &nbsp;<span class="muted">the newest point is circled</span></div>
+      <canvas id="xyPlot"></canvas>
+      <div class="row" id="xyReadout"></div>
+      </div>
+    </div>
+    <div id="expPlan"></div>
+  </div>
+</div>
+
+<div id="tab-settings" hidden>
+  <div class="row muted" id="cfgFile"></div>
+  <div class="row"><button id="cfgSave" title="Apply the fields marked * now (Enter in a field does the same)">save</button>
+    <button id="cfgDiscard" title="Show the values in use again">discard changes</button>
+    <span id="cfgStatus" class="muted"></span></div>
+  <div id="cfgForm"></div>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+// ---------------------------------------------------------------- API
+async function api(method, path, body) {
+  const r = await fetch(path, {method, headers: {"content-type": "application/json"},
+                               body: body === undefined ? undefined : JSON.stringify(body)});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`${data.error || r.status}: ${data.detail || r.statusText}`);
+  return data;
+}
+function message(text) {
+  $("msg").textContent = text ? new Date().toLocaleTimeString() + "  " + text : "";
+}
+function fmt(v, digits) { return v === undefined || v === null || Number.isNaN(v) ? "--" : Number(v).toFixed(digits); }
+
+// ---------------------------------------------------------------- status
+async function refreshStatus() {
+  if (serverStopped) return;
+  try {
+    const s = await api("GET", "/api/status");
+    const bad = Object.entries(s.instruments).filter(([, v]) => !v.connected).map(([k]) => k);
+    const running = !!s.job && jobRunning(s.job);
+    experimentRunning = running;
+    $("conn").textContent = (s.sim ? "[SIM] " : "") + (s.turning_off ? "turning outputs off, the experiment is stopping  |  " : "")
+      + (bad.length ? "not connected: " + bad.join(", ") : "all instruments connected")
+      + (running ? `  |  running: ${s.job.title} ${s.job.points_done}/${s.job.points_total}` : "");
+    const al = (s.align || {}).spa;
+    $("alignBtn").disabled = !!al && al.running;
+    if (al && al.running) $("alignStatus").textContent = `aligning... ${al.elapsed_s} s (about 3-6 min)`;
+    if (wasAligning && al && !al.running) alignDone(al);
+    wasAligning = !!al && al.running;
+  } catch (e) { $("conn").textContent = "server unreachable"; }
+}
+
+// ---------------------------------------------------------------- SA alignment
+let wasAligning = false;
+$("alignBtn").onclick = async () => {
+  if (!confirm("Align the SA now (Align Now, All)?\nAbout 3-6 min. The SA is reserved and the live view pauses; "
+               + "it can't be stopped once started.\n"
+               + "Without the AMPTD REF OUT -> INPUT cable only the filters (IF) are aligned, not RF.")) return;
+  try {
+    await api("POST", "/api/spa/align");
+    message("SA alignment started");
+    refreshStatus();
+  } catch (e) { message("alignment not started: " + e.message); }
+};
+function alignDone(al) {
+  if (al.error) message("SA alignment failed: " + al.error);
+  else {
+    const r = al.result;
+    message(`SA alignment done in ${Math.round(r.duration_s)} s`
+      + (r.rf_skipped_no_cable ? "; RF skipped (no AMPTD REF OUT -> INPUT cable), filters aligned" : "")
+      + (r.errors.length ? "; errors: " + r.errors.join(", ") : ""));
+  }
+  if (view === "spa") readState("spa").catch(() => {});
+}
+
+let serverStopped = false, experimentRunning = false;
+async function allOutputsOff() {
+  if (experimentRunning && !confirm("An experiment is running. It will stop (without its 'when done' step). Turn every output off?")) return;
+  try {
+    const r = await api("POST", "/api/outputs_off");
+    const failed = Object.entries(r.results).filter(([, v]) => v !== "off" && v !== "not connected").map(([k, v]) => `${k}: ${v}`);
+    message(failed.length ? "outputs off, except  |  " + failed.join("  |  ") : "all outputs off");
+    refreshStatus();
+    refreshAll();
+  } catch (e) { message("outputs off failed: " + e.message); }
+}
+async function shutdown() {
+  if (!confirm(`Stop the server? Instrument outputs stay as they are (use "outputs off" first to turn them off).
+The server has to be started again on the instrument computer afterwards.`)) return;
+  try {
+    await api("POST", "/api/shutdown");
+    serverStopped = true;
+    disconnectLive();
+    message("SERVER STOPPED (outputs left as they were)");
+    $("conn").textContent = "server stopped";
+  } catch (e) { message("shutdown failed: " + e.message); }
+}
+$("allOff").onclick = allOutputsOff;
+$("quit").onclick = shutdown;
+
+// ---------------------------------------------------------------- live plot
+const plot = $("plot"), ctx = plot.getContext("2d");
+let view = "spa", ws = null, frame = null, drawPending = false, mouse = null;
+
+function disconnectLive() {
+  if (ws) { ws.onclose = null; ws.close(); ws = null; }
+}
+function connectLive(name) {
+  disconnectLive();
+  frame = null; requestDraw();
+  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/live/${name}`);
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === "frame") { frame = m; requestDraw(); }
+    else if (m.type === "status") {
+      $("live").textContent = `${m.status}  ${m.fps.toFixed(1)} fps` + (frame ? `  read ${frame.read_ms} ms` : "")
+        + (m.average_count > 1 ? `  avg ${m.averaged}/${m.average_count}` : "");
+      if (document.activeElement !== $("avgCount")) $("avgCount").value = m.average_count;
+      $("hold").textContent = m.hold ? "run" : "hold";
+    } else if (m.type === "error") message(m.detail);
+  };
+  ws.onclose = () => setTimeout(() => { if (view === name && tab === "instruments" && !serverStopped) connectLive(name); }, 1000);
+}
+function requestDraw() { if (!drawPending) { drawPending = true; requestAnimationFrame(draw); } }
+
+function series() {
+  if (!frame) return null;
+  let y, yLabel;
+  if (frame.y_db) {
+    const deg = $("vnaQty").value === "deg";
+    y = deg ? frame.y_deg : frame.y_db; yLabel = deg ? "phase [deg]" : "|S21| [dB]";
+  } else { y = frame.y; yLabel = frame.y_unit; }
+  let x = frame.x, xLabel;
+  if (frame.x_unit === "Hz") { x = x.map(v => v / 1e9); xLabel = "GHz"; }
+  else { x = x.map(v => v * 1e3); xLabel = "ms"; }
+  return {x, y, xLabel, yLabel};
+}
+
+function ticks(lo, hi, n) {
+  const span = hi - lo || 1, raw = span / n, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 5, 10].map(m => m * mag).find(s => s >= raw);
+  const out = [];
+  for (let t = Math.ceil(lo / step) * step; t <= hi + step * 1e-9; t += step) out.push(t);
+  return out;
+}
+function label(v) {
+  const a = Math.abs(v);
+  return a !== 0 && (a < 1e-3 || a >= 1e5) ? v.toExponential(2) : String(+v.toPrecision(6));
+}
+
+function draw() {
+  drawPending = false;
+  const dpr = window.devicePixelRatio || 1, W = plot.clientWidth, H = plot.clientHeight;
+  if (plot.width !== W * dpr || plot.height !== H * dpr) { plot.width = W * dpr; plot.height = H * dpr; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);
+  ctx.font = "12px Courier New"; ctx.fillStyle = "#000";
+  const s = series();
+  if (!s) { ctx.fillText("waiting for data...", 20, 30); return; }
+
+  const L = 80, R = 15, T = 15, B = 40, pw = W - L - R, ph = H - T - B;
+  const x0 = s.x[0], x1 = s.x[s.x.length - 1] === x0 ? x0 + 1 : s.x[s.x.length - 1];
+  let y0, y1;
+  if ($("autoY").checked) {
+    y0 = Infinity; y1 = -Infinity;
+    for (const v of s.y) { if (v < y0) y0 = v; if (v > y1) y1 = v; }
+    const pad = (y1 - y0) * 0.05 || Math.abs(y0) * 0.05 || 1; y0 -= pad; y1 += pad;
+  } else { y0 = parseFloat($("yMin").value); y1 = parseFloat($("yMax").value); }
+  const X = v => L + (v - x0) / (x1 - x0) * pw, Y = v => T + (1 - (v - y0) / (y1 - y0)) * ph;
+
+  ctx.strokeStyle = "#ddd"; ctx.lineWidth = 1; ctx.beginPath();
+  ctx.textAlign = "center";
+  for (const t of ticks(x0, x1, 8)) { ctx.moveTo(X(t), T); ctx.lineTo(X(t), T + ph); ctx.fillText(label(t), X(t), T + ph + 14); }
+  ctx.textAlign = "right";
+  for (const t of ticks(y0, y1, 6)) { ctx.moveTo(L, Y(t)); ctx.lineTo(L + pw, Y(t)); ctx.fillText(label(t), L - 4, Y(t) + 4); }
+  ctx.stroke();
+  ctx.strokeStyle = "#000"; ctx.strokeRect(L, T, pw, ph);
+  ctx.textAlign = "center"; ctx.fillText(s.xLabel, L + pw / 2, H - 6);
+  ctx.save(); ctx.translate(12, T + ph / 2); ctx.rotate(-Math.PI / 2); ctx.fillText(s.yLabel, 0, 0); ctx.restore();
+
+  ctx.save(); ctx.beginPath(); ctx.rect(L, T, pw, ph); ctx.clip();
+  ctx.beginPath(); ctx.lineWidth = 1;
+  for (let i = 0; i < s.x.length; i++) { const px = X(s.x[i]), py = Y(s.y[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+  ctx.stroke(); ctx.restore();
+
+  if (mouse && mouse.x > L && mouse.x < L + pw) {     // readout of the nearest point
+    const xv = x0 + (mouse.x - L) / pw * (x1 - x0);
+    let i = 0; for (let k = 1; k < s.x.length; k++) if (Math.abs(s.x[k] - xv) < Math.abs(s.x[i] - xv)) i = k;
+    ctx.beginPath(); ctx.arc(X(s.x[i]), Y(s.y[i]), 3, 0, 2 * Math.PI); ctx.stroke();
+    ctx.textAlign = "left";
+    ctx.fillText(`${label(s.x[i])} ${s.xLabel}, ${label(s.y[i])}`, L + 6, T + 14);
+  }
+}
+plot.onmousemove = e => { const r = plot.getBoundingClientRect(); mouse = {x: e.clientX - r.left}; requestDraw(); };
+plot.onmouseleave = () => { mouse = null; requestDraw(); };
+window.onresize = () => { requestDraw(); if (tab === "experiments" && !$("expRun").hidden) drawResult(); };
+for (const id of ["autoY", "yMin", "yMax", "vnaQty"]) $(id).onchange = requestDraw;
+
+$("avgCount").onchange = async () => {
+  try { await api("POST", `/api/live/${view}/average`, {count: parseInt($("avgCount").value)}); }
+  catch (e) { message(e.message); }
+};
+$("avgRestart").onclick = () => api("POST", `/api/live/${view}/average`, {restart: true}).catch(e => message(e.message));
+$("hold").onclick = async () => {
+  try { await api("POST", `/api/live/${view}/hold`, {hold: $("hold").textContent === "hold"}); }
+  catch (e) { message(e.message); }
+};
+// ---------------------------------------------------------------- save
+// The server always keeps a copy under its data/. This computer gets one too: with a chosen
+// folder (Chrome/Edge over HTTPS or localhost) it goes to <folder>/<label>/<file>, otherwise
+// it is a normal download.
+let saveDir = null;
+
+function kv(mode, op) {       // tiny IndexedDB store; it keeps the folder handle across visits
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open("labserver", 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("kv");
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const req = op(open.result.transaction("kv", mode).objectStore("kv"));
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    };
+  });
+}
+function showDir() {
+  const can = "showDirectoryPicker" in window;
+  $("dirName").textContent = saveDir ? saveDir.name + "/<label>/"
+    : "downloads" + (can ? "" : window.isSecureContext ? " (folder choice needs Chrome or Edge)" : " (folder choice needs https)");
+  $("pickDir").hidden = !can;
+  $("clearDir").hidden = !saveDir;
+}
+// "sampleA/run 1" -> ["sampleA", "run 1"]; drops "." and "..", replaces characters Windows refuses
+function folderParts(label) {
+  return label.split(/[\\/]/).map(p => p.replace(/[<>:"|?*\x00-\x1f]/g, "-").replace(/[. ]+$/, "").trim())
+    .filter(p => p && p !== "." && p !== "..");
+}
+async function writeToDir(dir, label, r) {
+  const parts = [dir.name];
+  for (const p of folderParts(label)) { dir = await dir.getDirectoryHandle(p, {create: true}); parts.push(p); }
+  const data = await fetch(r.url).then(x => { if (!x.ok) throw new Error(`download ${x.status}`); return x.blob(); });
+  const w = await (await dir.getFileHandle(r.file, {create: true})).createWritable();
+  await w.write(data); await w.close();
+  return [...parts, r.file].join("/");
+}
+function download(r) {
+  const a = document.createElement("a");
+  a.href = r.url; a.download = r.file; a.click();
+}
+
+$("pickDir").onclick = async () => {
+  try {
+    saveDir = await window.showDirectoryPicker({id: "labserver-save", mode: "readwrite"});
+    await kv("readwrite", s => s.put(saveDir, "saveDir"));
+  } catch (e) { if (e.name !== "AbortError") message("choose folder failed: " + e.message); }
+  showDir();
+};
+$("clearDir").onclick = async () => {
+  saveDir = null; showDir();
+  await kv("readwrite", s => s.delete("saveDir")).catch(() => {});
+};
+$("save").onclick = async () => {
+  const label = $("label").value, seq = frame ? frame.seq : null;   // the frame on screen now
+  let dir = saveDir;
+  // ask for write access now: the browser only allows the prompt right after a click
+  if (dir && await dir.queryPermission({mode: "readwrite"}) !== "granted"
+          && await dir.requestPermission({mode: "readwrite"}) !== "granted") {
+    message("no write access to " + dir.name + ", downloading instead"); dir = null;
+  }
+  try {
+    const r = await api("POST", `/api/live/${view}/save`, {label, note: $("note").value, seq});
+    let where = r.file;
+    if (dir) {
+      try { where = await writeToDir(dir, label, r); }
+      catch (e) { message(`could not write to ${dir.name} (${e.message}), downloading instead`); download(r); }
+    } else download(r);
+    $("saved").textContent = "saved " + where;
+    showSnapshot(r.instruments || {});
+  } catch (e) { message("save failed: " + e.message); }
+};
+kv("readonly", s => s.get("saveDir")).then(h => { saveDir = h || null; }).catch(() => {}).finally(showDir);
+
+// ---------------------------------------------------------------- instrument settings (SA / VNA)
+const SETTINGS = {
+  spa: [
+    {key: "center_hz", label: "center", unit: "GHz", scale: 1e9},
+    {key: "span_hz", label: "span", unit: "MHz", scale: 1e6},
+    {key: "rbw_hz", label: "RBW", unit: "kHz", scale: 1e3},
+    {key: "vbw_hz", label: "VBW", unit: "kHz", scale: 1e3},
+    {key: "ref_level", label: "ref level", unit: "", scale: 1},
+    // scale before unit: applied in this order, so a unit the SA changes with the scale is set back
+    {key: "scale", label: "scale", options: ["LOG", "LIN"],
+     title: "Vertical scale, separate from the unit. LIN only reads right from the ref level down to about 20 dB below it."},
+    {key: "unit", label: "unit", options: ["DBM", "W"]},
+    {key: "detector", label: "detector", options: ["SAMP", "POS", "NEG"]},
+  ],
+  vna: [
+    {key: "start_hz", label: "start", unit: "GHz", scale: 1e9},
+    {key: "stop_hz", label: "stop", unit: "GHz", scale: 1e9},
+    {key: "points", label: "points", unit: "", scale: 1},
+    {key: "ifbw_hz", label: "IFBW", unit: "Hz", scale: 1},
+    {key: "power_dbm", label: "power", unit: "dBm", scale: 1},
+    {key: "sweep_type", label: "sweep", options: ["LIN", "CW"]},
+    {key: "cw_hz", label: "CW", unit: "GHz", scale: 1e9},
+    {key: "output", label: "RF output", checkbox: true},
+  ],
+};
+let loaded = {};
+
+function buildSettings() {
+  $("settings").innerHTML = "";
+  for (const f of SETTINGS[view]) {
+    const lab = document.createElement("label");
+    let el;
+    if (f.options) {
+      el = document.createElement("select");
+      for (const o of f.options) el.add(new Option(o, o));
+    } else {
+      el = document.createElement("input");
+      if (f.checkbox) el.type = "checkbox"; else { el.type = "number"; el.step = "any"; }
+    }
+    el.id = "set_" + f.key;
+    el.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); applySettings(); } });
+    if (f.title) lab.title = f.title;
+    lab.append(f.label + " ", el, f.unit ? " " + f.unit : "");
+    $("settings").append(lab);
+  }
+}
+function fieldValue(f) {
+  const el = $("set_" + f.key);
+  if (f.checkbox) return el.checked;
+  if (f.options) return el.value;
+  return el.value === "" ? undefined : parseFloat(el.value) * f.scale;
+}
+function sameValue(f, a, b) {
+  if (typeof a === "number" && typeof b === "number") return Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a));
+  if (typeof a === "boolean" || typeof b === "boolean") return !!a === !!b;
+  const A = String(a).toUpperCase(), B = String(b).toUpperCase();     // "LIN" matches "LINEAR"
+  return A.startsWith(B) || B.startsWith(A);
+}
+// STAT:QUES:CAL condition, decoded by the driver (state.alignment)
+function alignmentText(a) {
+  if (!a || !a.known) return "status not readable";
+  const parts = [];
+  if (a.align_needed) parts.push("ALIGN NEEDED");
+  if (a.failed.length) parts.push("failed: " + a.failed.join(", "));
+  if (a.align_rf_needed || a.align_rf_skipped) parts.push("RF alignment pending (needs the AMPTD REF OUT -> INPUT cable)");
+  return parts.join("; ") || "aligned (no flags)";
+}
+function showAlignment(a) {
+  $("alignStatus").textContent = alignmentText(a);
+  const bad = !!a && a.known && (a.align_needed || a.failed.length > 0);
+  $("alignStatus").className = bad ? "" : "muted";
+  $("alignStatus").style.fontWeight = bad ? "bold" : "";
+}
+function showSettings(state) {
+  if (view === "spa") showAlignment(state.alignment);
+  loaded = state;
+  for (const f of SETTINGS[view]) {
+    const el = $("set_" + f.key), v = state[f.key];
+    if (f.checkbox) el.checked = !!v;
+    else if (f.options) el.value = f.options.find(o => String(v).toUpperCase().startsWith(o)) || v;
+    else el.value = v === undefined || v === null ? "" : +(v / f.scale).toPrecision(10);
+  }
+}
+async function loadSettings() {
+  try { showSettings(await api("GET", `/api/${view}/state`)); }
+  catch (e) { message(e.message); }
+}
+// Send only the changed fields, then show the full state the instrument reports back:
+// one setting can change others (e.g. span -> auto RBW/VBW -> sweep time).
+async function applySettings() {
+  const body = {};
+  for (const f of SETTINGS[view]) {
+    const v = fieldValue(f);
+    if (v !== undefined && !sameValue(f, v, loaded[f.key])) body[f.key] = v;
+  }
+  if (!Object.keys(body).length) { loadSettings(); return; }
+  try { showSettings(await api("POST", `/api/${view}`, body)); }
+  catch (e) { message(`${view}: NOT applied: ${e.message}`); loadSettings(); }
+}
+$("apply").onclick = applySettings;
+
+function selectView(name) {
+  view = name;
+  $("vnaShow").hidden = name !== "vna";
+  $("alignRow").hidden = name !== "spa";
+  buildSettings(); loadSettings(); if (tab === "instruments") connectLive(name);
+}
+for (const r of document.querySelectorAll("input[name=view]")) r.onchange = () => selectView(r.value);
+
+// ---------------------------------------------------------------- knob controls
+// Each wheel tick on a knob moves the value by that knob's step (like twpa/pump.html).
+// The number box takes typed values (Enter). Requests are coalesced: while one is in
+// flight, further ticks only update the target, and the latest target is sent next.
+const CONTROLS = [
+  {title: "Pump", inst: "rf_synth", enable: "pump_enable", params: [
+    {key: "pump_frequency_hz", label: "f", unit: "GHz", scale: 1e9, digits: 6,
+     steps: [[100e6, "100 MHz"], [10e6, "10 MHz"], [1e6, "1 MHz"], [100e3, "100 kHz"]]},
+    {key: "pump_power_dbm", label: "P", unit: "dBm", scale: 1, digits: 2,
+     steps: [[1, "1 dB"], [0.1, "0.1 dB"], [0.01, "0.01 dB"]]}]},
+  {title: "Signal", inst: "rf_synth", enable: "probe_enable", params: [
+    {key: "probe_frequency_hz", label: "f", unit: "GHz", scale: 1e9, digits: 6,
+     steps: [[100e6, "100 MHz"], [10e6, "10 MHz"], [1e6, "1 MHz"], [100e3, "100 kHz"]]},
+    {key: "probe_power_dbm", label: "P", unit: "dBm", scale: 1, digits: 2,
+     steps: [[1, "1 dB"], [0.1, "0.1 dB"], [0.01, "0.01 dB"]]}]},
+  // the level is in A in current mode; the server refuses it there unless the settings allow it
+  {title: "Qubit flux", inst: "qubit_flux_bias", enable: "output",
+   note: s => /^CURR/i.test(s.function || "") ? "CURRENT MODE (CURR): the level is in A" : "", params: [
+    {key: "level", label: "V", unit: "V", scale: 1, digits: 4,
+     steps: [[0.1, "0.1 V"], [0.01, "10 mV"], [0.001, "1 mV"], [0.0001, "0.1 mV"]]}]},
+  // the 33220A powers up in SIN mode, so turning it on also selects DC
+  {title: "Noise source", inst: "noise_source_bias", enable: "output", onExtra: {function: "DC"}, params: [
+    {key: "offset_v", label: "V", unit: "V", scale: 1, digits: 3,
+     steps: [[0.1, "0.1 V"], [0.01, "10 mV"], [0.001, "1 mV"]]}]},
+  {title: "Attenuator", inst: "attenuator", params: [
+    {key: "attenuation_db", label: "A", unit: "dB", scale: 1, digits: 2,
+     steps: [[10, "10 dB"], [1, "1 dB"], [0.25, "0.25 dB"]]}]},
+];
+let limits = {};
+
+function drawKnob(k) {
+  const c = k.canvas, g = c.getContext("2d"), r = c.width / 2 - 3;
+  g.clearRect(0, 0, c.width, c.height);
+  g.lineWidth = 3; g.strokeStyle = "#000";
+  g.fillStyle = k.hover ? "#00000020" : "#fff";
+  g.beginPath(); g.arc(c.width / 2, c.height / 2, r, 0, 2 * Math.PI); g.fill(); g.stroke();
+  const a = k.ticks * 2 * Math.PI / 24;
+  g.beginPath(); g.moveTo(c.width / 2, c.height / 2);
+  g.lineTo(c.width / 2 + r * Math.sin(a), c.height / 2 - r * Math.cos(a)); g.stroke();
+}
+
+function buildControls() {
+  for (const ctl of CONTROLS) {
+    const box = document.createElement("div"); box.className = "control";
+    const title = document.createElement("span"); title.className = "title"; title.textContent = ctl.title;
+    box.append(title);
+    if (ctl.enable) {
+      const en = document.createElement("input"); en.type = "checkbox";
+      en.onchange = () => sendEnable(ctl, en.checked);
+      ctl.enableEl = en;
+      const enLab = document.createElement("label"); enLab.append(en, " on");
+      box.append(enLab);
+    }
+    if (ctl.note) { ctl.noteEl = document.createElement("span"); ctl.noteEl.className = "note"; box.append(ctl.noteEl); }
+    box.append(document.createElement("br"));
+    for (const p of ctl.params) {
+      p.ctl = ctl; p.value = null; p.target = null; p.inflight = false;
+      const div = document.createElement("div"); div.className = "param";
+      p.valueEl = document.createElement("span"); p.valueEl.className = "value";
+      p.input = document.createElement("input"); p.input.type = "number"; p.input.step = "any";
+      p.input.title = "type a value and press Enter";
+      p.input.onkeydown = e => { if (e.key === "Enter") setTarget(p, parseFloat(p.input.value) * p.scale); };
+      div.append(`${p.label} = `, p.valueEl, ` ${p.unit}  `, p.input);
+      const knobs = document.createElement("div"); knobs.className = "knobs";
+      for (const [step, name] of p.steps) {
+        const k = {step, ticks: 0, hover: false};
+        const wrap = document.createElement("div"); wrap.className = "knob";
+        k.canvas = document.createElement("canvas"); k.canvas.width = k.canvas.height = 64;
+        k.canvas.title = `mouse wheel: +/- ${name}`;
+        k.canvas.addEventListener("wheel", e => {
+          e.preventDefault();
+          const dir = e.deltaY < 0 ? 1 : -1;
+          k.ticks += dir; drawKnob(k);
+          const base = p.target ?? p.value;
+          if (base !== null) setTarget(p, base + dir * step);
+        }, {passive: false});
+        k.canvas.onmouseenter = () => { k.hover = true; drawKnob(k); };
+        k.canvas.onmouseleave = () => { k.hover = false; drawKnob(k); };
+        wrap.append(name, k.canvas);
+        knobs.append(wrap);
+        drawKnob(k);
+      }
+      div.append(knobs);
+      box.append(div);
+    }
+    $("controls").append(box);
+  }
+}
+
+function showParam(p) {
+  const v = p.target ?? p.value;
+  p.valueEl.textContent = fmt(v === null ? null : v / p.scale, p.digits);
+}
+function setTarget(p, v) {
+  if (!Number.isFinite(v)) return;
+  const lim = (limits[p.ctl.inst] || {})[p.key];
+  if (lim) v = Math.min(lim[1] ?? Infinity, Math.max(lim[0] ?? -Infinity, v));     // null end: no bound
+  const q = p.steps[p.steps.length - 1][0];               // snap to the finest knob step
+  v = Math.round(v / q) * q;
+  p.target = +v.toPrecision(12);
+  showParam(p); flush(p);
+}
+async function flush(p) {          // send the latest target, one request at a time
+  if (p.inflight || p.target === null) return;
+  const v = p.target;
+  p.inflight = true;
+  try {
+    const state = await api("POST", `/api/${p.ctl.inst}`, {[p.key]: v});
+    p.value = state[p.key];
+    if (p.target === v) p.target = null;
+  } catch (e) {
+    message(`${p.ctl.title}: ${e.message}`);
+    p.target = null;
+  }
+  p.inflight = false;
+  showParam(p);
+  if (p.target !== null) flush(p);
+}
+async function sendEnable(ctl, on) {
+  try { showState(ctl.inst, await api("POST", `/api/${ctl.inst}`, on ? {...ctl.onExtra, [ctl.enable]: true} : {[ctl.enable]: false})); }
+  catch (e) { message(`${ctl.title}: ${e.message}`); readState(ctl.inst).catch(() => {}); }
+}
+
+// ---------------------------------------------------------------- warm switches
+// One row per named switch in config.yaml. A click moves that switch; the radios then
+// show what the switch box reports back.
+let switchSpecs = {};
+
+function buildSwitches() {
+  const box = document.createElement("div"); box.className = "control";
+  const title = document.createElement("span"); title.className = "title"; title.textContent = "Switches";
+  box.append(title);
+  if (!Object.keys(switchSpecs).length) {
+    const none = document.createElement("span"); none.className = "muted";
+    none.textContent = "not connected (reload the page once it is)";
+    box.append(none);
+  }
+  for (const [sw, spec] of Object.entries(switchSpecs)) {
+    const row = document.createElement("div"); row.className = "switch";
+    const name = document.createElement("span"); name.className = "name"; name.textContent = `${sw} (${spec.channel})`;
+    row.append(name);
+    for (const pos of Object.keys(spec.positions)) {
+      const r = document.createElement("input"); r.type = "radio"; r.name = "sw_" + sw; r.value = pos;
+      r.onchange = () => setSwitch(sw, pos);
+      const lab = document.createElement("label"); lab.append(r, " " + pos);
+      row.append(lab);
+    }
+    box.append(row);
+  }
+  $("controls").append(box);
+}
+function showSwitches(state) {
+  for (const sw of Object.keys(switchSpecs))
+    for (const r of document.getElementsByName("sw_" + sw)) r.checked = r.value === state[sw];
+}
+async function setSwitch(sw, pos) {
+  try { showSwitches(await api("POST", "/api/warm_switches", {[sw]: pos})); }
+  catch (e) { message(`switches: ${e.message}`); readState("warm_switches").catch(() => {}); }
+}
+
+// ---------------------------------------------------------------- refresh
+// The page never polls the instruments. Values are read on page load, on "refresh" and
+// from the snapshot that "save trace" records; every change also shows the state it returns.
+function showState(inst, state) {
+  if (inst === view) showSettings(state);
+  if (inst === "warm_switches") showSwitches(state);
+  for (const ctl of CONTROLS.filter(c => c.inst === inst)) {
+    if (ctl.enableEl) ctl.enableEl.checked = !!state[ctl.enable];
+    if (ctl.noteEl) ctl.noteEl.textContent = ctl.note(state);
+    for (const p of ctl.params) {
+      if (p.inflight || p.target !== null) continue;      // a newer value is on its way
+      p.value = state[p.key]; showParam(p);
+      if (document.activeElement !== p.input) p.input.value = p.value === undefined || p.value === null ? "" : +(p.value / p.scale).toPrecision(10);
+    }
+  }
+}
+async function readState(inst) { showState(inst, await api("GET", `/api/${inst}/state`)); }
+function panelInstruments() {
+  const insts = new Set([view, ...CONTROLS.map(c => c.inst)]);
+  if (Object.keys(switchSpecs).length) insts.add("warm_switches");
+  return [...insts];
+}
+function showRefreshed(what, failed) {
+  $("refreshed").textContent = `values ${what} ${new Date().toLocaleTimeString()}`
+    + (failed.length ? `, could not read: ${failed.join(", ")}` : "");
+}
+async function refreshAll() {
+  if (serverStopped) return;
+  const failed = [];
+  await Promise.all(panelInstruments().map(inst => readState(inst).catch(() => failed.push(inst))));
+  showRefreshed("read", failed);
+}
+function showSnapshot(snap) {
+  const failed = [];
+  for (const inst of panelInstruments()) {
+    const st = snap[inst];
+    if (!st || st.error) failed.push(inst); else showState(inst, st);
+  }
+  showRefreshed("from save", failed);
+}
+$("refresh").onclick = refreshAll;
+
+// ---------------------------------------------------------------- experiments
+// The forms are built from /api/experiments (labserver/experiments/), so a new experiment
+// needs no code here. Every change re-checks the settings on the server (plan), which lists
+// the sweep points and any problem before anything runs. Settings are kept per browser.
+let experiments = null, exp = null, planTimer = null, planSeq = 0, planOk = false, lastPlan = null;
+
+function expStore(id, values) {
+  try {
+    if (values === undefined) return JSON.parse(localStorage.getItem("exp:" + id) || "{}");
+    localStorage.setItem("exp:" + id, JSON.stringify(values));
+  } catch (e) { return {}; }
+}
+function expValues() {
+  const out = {};
+  for (const p of exp.params) {
+    const el = $("exp_" + p.key);
+    if (p.kind === "bool") out[p.key] = el.checked;
+    else if (p.kind === "table") out[p.key] = tableValue(p);
+    else if (p.kind === "select" || p.kind === "text") out[p.key] = el.value;
+    else out[p.key] = el.value === "" ? null : parseFloat(el.value) * p.scale;
+  }
+  return out;
+}
+// table settings (e.g. power segments): one row of number boxes per entry, rows can be added/removed
+function tableValue(p) {
+  return [...$("exp_" + p.key).querySelectorAll("tr")].slice(1).map(tr => Object.fromEntries(
+    [...tr.querySelectorAll("input")].map(i => {
+      const c = p.columns.find(c => c.key === i.dataset.key);
+      return [c.key, i.value === "" ? null : parseFloat(i.value) * c.scale];
+    })));
+}
+function addTableRow(p, tbl, r) {
+  const tr = tbl.insertRow();
+  for (const c of p.columns) {
+    const i = document.createElement("input"); i.type = "number"; i.step = "any"; i.dataset.key = c.key;
+    i.value = r[c.key] === null || r[c.key] === undefined ? "" : +(r[c.key] / c.scale).toPrecision(10);
+    i.addEventListener("input", expChanged);
+    tr.insertCell().append(i);
+  }
+  const del = document.createElement("button"); del.textContent = "remove"; del.title = "remove this row";
+  del.onclick = () => { tr.remove(); expChanged(); };
+  tr.insertCell().append(del);
+}
+function buildTable(p, rows) {
+  const box = $("exp_" + p.key); box.innerHTML = "";
+  const tbl = document.createElement("table"); tbl.className = "segs";
+  const head = tbl.insertRow();
+  for (const c of [...p.columns, {label: ""}]) {
+    const th = document.createElement("th"); th.textContent = c.label + (c.unit ? ` [${c.unit}]` : ""); head.append(th);
+  }
+  for (const r of rows || []) addTableRow(p, tbl, r);
+  const add = document.createElement("button"); add.textContent = "add row";
+  add.onclick = () => {
+    const last = tableValue(p).at(-1);       // continue from the last row (columns: from, to, ...)
+    const [from, to] = p.columns.map(c => c.key);
+    addTableRow(p, tbl, last ? {...last, [from]: last[to], [to]: null} : {});
+    expChanged();
+  };
+  box.append(tbl, add);
+}
+function expSetField(p, v) {
+  const el = $("exp_" + p.key);
+  if (p.kind === "bool") el.checked = !!v;
+  else if (p.kind === "table") buildTable(p, v);
+  else if (p.kind === "select" || p.kind === "text") el.value = v ?? "";
+  else el.value = v === null || v === undefined ? "" : +(v / p.scale).toPrecision(10);
+}
+function expShowIf() {
+  const vals = expValues();
+  for (const p of exp.params)
+    $("exp_" + p.key).closest(".f").hidden = !Object.entries(p.show_if).every(([k, ok]) => ok.includes(vals[k]));
+}
+function buildExpForm(values) {
+  const form = $("expForm"); form.innerHTML = "";
+  const groups = {};
+  for (const p of exp.params) {
+    if (!groups[p.group]) {
+      const fs = document.createElement("fieldset"), lg = document.createElement("legend");
+      lg.textContent = p.group || "settings"; fs.append(lg); form.append(fs); groups[p.group] = fs;
+    }
+    const row = document.createElement("div"); row.className = "f";
+    let el;
+    if (p.kind === "table") el = document.createElement("div");
+    else if (p.kind === "select") {
+      el = document.createElement("select");
+      for (const [v, l] of p.options) el.add(new Option(l, v));
+    } else {
+      el = document.createElement("input");
+      el.type = p.kind === "bool" ? "checkbox" : p.kind === "text" ? "text" : "number";
+      if (el.type === "number") el.step = "any";
+    }
+    el.id = "exp_" + p.key;
+    if (p.kind !== "table") el.addEventListener(el.type === "text" || el.type === "number" ? "input" : "change", expChanged);
+    if (p.kind === "bool") {
+      const lab = document.createElement("label"); lab.append(el, " " + p.label); row.append(lab);
+    } else if (p.kind === "table") {
+      const name = document.createElement("div"); name.textContent = p.label;
+      row.append(name, el);
+    } else {
+      const name = document.createElement("span"); name.textContent = p.label + (p.from_state ? " *" : "");
+      row.append(name, el, p.unit ? " " + p.unit : "");
+    }
+    if (p.help) {
+      const h = document.createElement("div"); h.className = "help"; h.textContent = p.help;
+      if (p.kind === "table") h.style.marginLeft = "0";
+      row.append(h);
+    }
+    groups[p.group].append(row);
+    expSetField(p, p.key in values ? values[p.key] : p.default);
+  }
+  expShowIf();
+}
+function expChanged() {
+  expShowIf();
+  expStore(exp.id, expValues());
+  clearTimeout(planTimer); planTimer = setTimeout(expPlan, 300);
+}
+function fmtDuration(s) {
+  if (s < 90) return `${s.toFixed(0)} s`;
+  if (s < 5400) return `${(s / 60).toFixed(1)} min`;
+  return `${(s / 3600).toFixed(1)} h`;
+}
+async function expPlan() {
+  const seq = ++planSeq, box = $("expPlan");
+  const line = (cls, text) => box.append(Object.assign(document.createElement("div"), {className: cls, textContent: text}));
+  let r;
+  // hidden fields go along too (the server ignores the ones the chosen sweep doesn't use)
+  try { r = await api("POST", `/api/experiments/${exp.id}/plan`, expValues()); }
+  catch (e) {
+    if (seq === planSeq) { box.innerHTML = ""; line("err", "ERROR: " + e.message); planOk = false; showJob(); }
+    return;
+  }
+  if (seq !== planSeq) return;      // a newer check is on its way
+  planOk = !r.errors.length && r.points.length > 0; lastPlan = r; showJob();
+  // settings left empty that the server fills from the others (e.g. sweep time from RBW/VBW)
+  for (const p of exp.params) {
+    if (p.kind !== "number" && p.kind !== "int") continue;
+    const v = (r.derived || {})[p.key];
+    $("exp_" + p.key).placeholder = v === undefined || v === null ? "" : String(+(v / p.scale).toPrecision(6));
+  }
+  box.innerHTML = "";
+  line("", `${r.points.length} points, about ${fmtDuration(r.estimate_s)} (rough), data file about ${r.size_mb} MB`);
+  for (const t of r.errors) line("err", "ERROR: " + t);
+  for (const t of r.warnings) line("warn", "warning: " + t);
+  for (const t of r.notes) line("muted", t);
+  if (!r.points.length) return;
+  const wrap = document.createElement("div"); wrap.className = "scroll";
+  const tbl = document.createElement("table"), head = tbl.insertRow();
+  for (const [key, labelText, unit] of r.columns) {
+    const th = document.createElement("th");
+    th.textContent = labelText + (unit ? ` [${unit}]` : "");
+    head.append(th);
+  }
+  for (const pt of r.points) {
+    const tr = tbl.insertRow();
+    for (const [key] of r.columns) tr.insertCell().textContent = String(+Number(pt[key]).toPrecision(6));
+  }
+  wrap.append(tbl); box.append(wrap);
+}
+$("expDefaults").onclick = () => { expStore(exp.id, {}); buildExpForm({}); expPlan(); };
+// saved defaults live on the server; the describe() it returns has them as the params' defaults
+function replaceExperiment(d) {
+  experiments = experiments.map(x => x.id === d.id ? d : x);
+  if (exp && exp.id === d.id) { exp = d; showExpDefaults(); }
+}
+function showExpDefaults() {
+  const n = exp.saved_defaults.length;
+  $("expDefNote").textContent = n ? `defaults: saved for ${n} setting(s) (${exp.saved_defaults.join(", ")}); `
+    + "the settings tab can put them back to the built-in ones" : "";
+}
+$("expSaveDefaults").onclick = async () => {
+  try {
+    replaceExperiment(await api("PUT", `/api/experiments/${exp.id}/defaults`, expValues()));
+    message(`${exp.title}: this form is now the default`);
+  } catch (e) { message("save as defaults failed: " + e.message); }
+};
+$("expLoad").onclick = async () => {
+  const insts = [...new Set(exp.params.filter(p => p.from_state).map(p => p.from_state[0]))];
+  const failed = [];
+  await Promise.all(insts.map(async inst => {
+    try {
+      const st = await api("GET", `/api/${inst}/state`);
+      for (const p of exp.params.filter(q => q.from_state && q.from_state[0] === inst)) expSetField(p, st[p.from_state[1]]);
+    } catch (e) { failed.push(`${inst} (${e.message})`); }
+  }));
+  if (failed.length) message("could not read " + failed.join(", "));
+  expChanged();
+};
+
+async function showExperiments(id) {
+  if (!experiments) {
+    try { experiments = await api("GET", "/api/experiments"); }
+    catch (e) { message(e.message); return; }
+  }
+  exp = experiments.find(x => x.id === id) || null;
+  $("expList").hidden = !!exp; $("expPage").hidden = !exp;
+  if (!exp) {
+    $("expList").innerHTML = "";
+    for (const x of experiments) {
+      const a = document.createElement("a"); a.className = "exp-item"; a.href = "#experiments/" + x.id;
+      const t = document.createElement("div"); t.className = "exp-title"; t.textContent = x.title;
+      const d = document.createElement("div"); d.textContent = x.summary;
+      const i = document.createElement("div"); i.className = "muted"; i.textContent = "uses: " + x.instruments.join(", ");
+      a.append(t, d, i); $("expList").append(a);
+    }
+    return;
+  }
+  $("expTitle").textContent = exp.title;
+  $("expSummary").textContent = exp.summary + "  (uses: " + exp.instruments.join(", ") + ")";
+  showExpDefaults();
+  $("expPlan").innerHTML = "";
+  planOk = false;
+  buildExpForm(expStore(exp.id));
+  expPlan();
+  loadJob();
+}
+
+// ---------------------------------------------------------------- experiment runs
+// The server runs one experiment at a time. While it runs, the page asks for the result rows
+// it hasn't seen yet once a second; the last run (also a finished one) stays viewable.
+let jobView = null, jobLoading = false, mapCursor = null, mapPinned = false, mapGeom = null;
+const jobRunning = j => ["starting", "running"].includes(j.status);
+
+async function loadJob() {
+  if (jobLoading) return;
+  jobLoading = true;
+  try {
+    let j = await api("GET", `/api/jobs/current?since=${jobView ? jobView.rows.length : 0}`);
+    if (!j) { jobView = null; return; }
+    if (!jobView || jobView.id !== j.id) {
+      if (j.since !== 0) j = await api("GET", `/api/jobs/${j.id}?since=0`);
+      jobView = {id: j.id, rows: []}; mapCursor = null; mapPinned = false;
+    }
+    if (j.since === jobView.rows.length) jobView.rows.push(...j.rows);
+    jobView.axis = j.axis; jobView.info = j;
+  } catch (e) { message(e.message); }
+  finally { jobLoading = false; showJob(); }
+}
+function showJob() {
+  const running = !!jobView && jobRunning(jobView.info);
+  $("expStart").disabled = !exp || running || !planOk;
+  $("expStart").title = running ? "an experiment is running" : planOk ? "" : "fix the errors first";
+  $("expStop").hidden = !running;
+  const mine = !!jobView && !!exp && jobView.info.experiment === exp.id;
+  $("expRun").hidden = !mine;
+  if (!mine) return;
+  const j = jobView.info;
+  $("runStatus").textContent = `${j.status}: ${j.message}  |  ${j.points_done}/${j.points_total} points, `
+    + `${j.traces_done}/${j.traces_total} traces, ${fmtDuration(j.elapsed_s)}`
+    + (j.eta_s !== null ? `, about ${fmtDuration(j.eta_s)} left` : "")
+    + (j.notes.length ? "  |  " + j.notes.join("; ") : "");
+  $("runFile").hidden = !j.url;
+  if (j.url) { $("runFile").href = j.url; $("runFile").download = j.file; $("runFile").textContent = "download " + j.file; }
+  drawResult();
+}
+// sweeps that record one number per point (axis.plot = "xy", e.g. the Y factor measurement)
+// get a plot of it vs the swept setting; the VNA sweeps get the 2D map
+function drawResult() {
+  const plot = jobView && jobView.axis ? jobView.axis.plot : null;
+  const xy = plot === "xy";
+  $("mapView").hidden = xy || plot === "none"; $("xyView").hidden = !xy;     // "none": a run without a plot
+  if (plot === "none") return;
+  xy ? drawXyResult() : drawMap();
+}
+function drawXyResult() {
+  const ax = jobView.axis, rows = jobView.rows, dbm = $("xyQty").value === "dbm";
+  if (!rows.length) {
+    const [g] = prepCanvas($("xyPlot")); g.fillText("waiting for the first point...", 20, 30);
+    $("xyReadout").textContent = ""; return;
+  }
+  const val = w => dbm ? 10 * Math.log10(Math.max(w, 1e-30) / 1e-3) : w / 1e-9;
+  const unit = dbm ? "dBm" : "nW", last = rows.at(-1);
+  drawXY($("xyPlot"), rows.map(r => r[ax.x_key]), rows.map(r => val(r[ax.y_key])),
+         `${ax.x_label} [${ax.x_unit}]`, `${ax.y_label} [${unit}]`,
+         (ax.title ? ax.title + "; " : "") + "in the order measured", rows.length - 1, true);
+  $("xyReadout").textContent = `newest: ${ax.x_label} = ${last[ax.x_key]} ${ax.x_unit}`
+    + (last.pass ? ` (pass ${last.pass + 1})` : "") + `, ${ax.y_label} = ${label(val(last[ax.y_key]))} ${unit}`
+    + (dbm || last.power_std_w === undefined ? "" : ` (sample std ${label(val(last.power_std_w))} nW)`)
+    + (last.traces ? `, ${last.traces} trace(s)` : "");
+}
+$("xyQty").onchange = drawResult;
+$("expStart").onclick = async () => {
+  const pl = lastPlan;
+  if (!confirm(`Start ${exp.title}?\n${pl.points.length} points, about ${fmtDuration(pl.estimate_s)}.`
+               + (exp.turns_on ? `\nThis turns ${exp.turns_on} on.` : ""))) return;
+  try { await api("POST", `/api/experiments/${exp.id}/start`, expValues()); jobView = null; await loadJob(); }
+  catch (e) { message("start failed: " + e.message); }
+};
+$("expStop").onclick = async () => {
+  try { await api("POST", `/api/jobs/${jobView.id}/stop`); } catch (e) { message(e.message); }
+  loadJob();
+};
+setInterval(() => { if (tab === "experiments" && exp && jobView && jobRunning(jobView.info)) loadJob(); }, 1000);
+
+// ---- 2D map: x = frequency, y = the swept setting (axis.y_key: VNA power, flux bias, ...),
+// gray scale (dark = low), like the notebook's Greys_r
+function prepCanvas(c) {
+  const dpr = window.devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+  if (c.width !== W * dpr || c.height !== H * dpr) { c.width = W * dpr; c.height = H * dpr; }
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+  g.font = "12px Courier New"; g.fillStyle = "#000"; g.strokeStyle = "#000"; g.lineWidth = 1;
+  return [g, W, H];
+}
+function edges(v) {           // cell edges around sorted centers
+  if (v.length === 1) return [v[0] - 0.5, v[0] + 0.5];
+  const e = [v[0] - (v[1] - v[0]) / 2];
+  for (let i = 0; i < v.length - 1; i++) e.push((v[i] + v[i + 1]) / 2);
+  return [...e, v.at(-1) + (v.at(-1) - v.at(-2)) / 2];
+}
+function mapData() {
+  if (!jobView || !jobView.axis || !jobView.rows.length) return null;
+  const deg = $("mapQty").value === "deg";
+  const ax = jobView.axis, key = ax.y_key || "power_dbm";
+  const rows = [...jobView.rows].sort((a, b) => a[key] - b[key]);
+  // stepping the warm attenuator scales S21 itself (it is in the measured path): add it back
+  // so the map shows the qubit, not the attenuation; the saved data stays as measured
+  const att = key === "attenuation_db" && !deg;
+  return {f: ax.x.map(v => v / 1e9), p: rows.map(r => r[key]), rows, key,
+          pLabel: ax.y_label || "VNA power", pUnit: ax.y_unit ?? "dBm",
+          z: rows.map(r => deg ? r.deg : att ? r.s_db.map(v => v + r[key]) : r.s_db),
+          zLabel: deg ? "phase [deg]" : att ? "|S21| + attenuation [dB]" : "|S21| [dB]"};
+}
+function mapCursorCell(d) {   // {i: row, j: column}; default = newest row, at the dip of the lowest row
+  let i, j;
+  if (mapCursor) {
+    i = d.p.reduce((best, v, k) => Math.abs(v - mapCursor.p) < Math.abs(d.p[best] - mapCursor.p) ? k : best, 0);
+    j = mapCursor.j;
+  } else {
+    i = d.p.indexOf(jobView.rows.at(-1)[d.key]);
+    const low = d.rows[0].s_db;
+    j = low.indexOf(Math.min(...low));
+  }
+  return {i, j: Math.min(Math.max(j, 0), d.f.length - 1)};
+}
+function drawMap() {
+  const [g, W, H] = prepCanvas($("mapPlot"));
+  const d = mapData();
+  mapGeom = null;
+  if (!d) {
+    g.fillText(jobView ? "waiting for the first point..." : "no result yet", 20, 30);
+    $("mapReadout").textContent = ""; drawXY($("cutF")); drawXY($("cutP"));
+    return;
+  }
+  const L = 80, R = 95, T = 10, B = 40, pw = W - L - R, ph = H - T - B;
+  const fe = edges(d.f), pe = edges(d.p), nf = d.f.length, np = d.p.length;
+  let z0 = Infinity, z1 = -Infinity;
+  if ($("mapAuto").checked) { for (const row of d.z) for (const v of row) { if (v < z0) z0 = v; if (v > z1) z1 = v; } }
+  else { z0 = parseFloat($("mapMin").value); z1 = parseFloat($("mapMax").value); }
+  if (!(z1 > z0)) z1 = z0 + 1;
+  const X = v => L + (v - fe[0]) / (fe.at(-1) - fe[0]) * pw, Y = v => T + (1 - (v - pe[0]) / (pe.at(-1) - pe[0])) * ph;
+  const gray = v => Math.round(255 * Math.min(1, Math.max(0, (v - z0) / (z1 - z0))));
+
+  const off = document.createElement("canvas"); off.width = nf; off.height = np;
+  const img = off.getContext("2d").createImageData(nf, np);
+  for (let i = 0; i < np; i++) for (let j = 0; j < nf; j++) {
+    const k = (i * nf + j) * 4, c = gray(d.z[i][j]);
+    img.data[k] = img.data[k + 1] = img.data[k + 2] = c; img.data[k + 3] = 255;
+  }
+  off.getContext("2d").putImageData(img, 0, 0);
+  g.imageSmoothingEnabled = false;
+  for (let i = 0; i < np; i++) {     // each row gets the band between its neighbours (steps can differ)
+    const top = Y(pe[i + 1]), bottom = Y(pe[i]);
+    g.drawImage(off, 0, i, nf, 1, L, top, pw, Math.max(1, bottom - top + 0.5));
+  }
+  g.strokeRect(L, T, pw, ph);
+  g.textAlign = "center";
+  for (const t of ticks(fe[0], fe.at(-1), 8)) { g.fillText(label(t), X(t), T + ph + 14); g.beginPath(); g.moveTo(X(t), T + ph); g.lineTo(X(t), T + ph + 4); g.stroke(); }
+  g.fillText("frequency [GHz]", L + pw / 2, H - 6);
+  g.textAlign = "right";
+  for (const t of ticks(pe[0], pe.at(-1), 8)) { g.fillText(label(t), L - 6, Y(t) + 4); g.beginPath(); g.moveTo(L - 4, Y(t)); g.lineTo(L, Y(t)); g.stroke(); }
+  g.save(); g.translate(14, T + ph / 2); g.rotate(-Math.PI / 2); g.textAlign = "center"; g.fillText(`${d.pLabel} [${d.pUnit}]`, 0, 0); g.restore();
+  // color bar
+  const cx = L + pw + 14, cw = 14;
+  for (let y = 0; y < ph; y++) { const c = Math.round(255 * (1 - y / ph)); g.fillStyle = `rgb(${c},${c},${c})`; g.fillRect(cx, T + y, cw, 1.5); }
+  g.fillStyle = "#000"; g.strokeRect(cx, T, cw, ph); g.textAlign = "left";
+  for (const t of ticks(z0, z1, 6)) g.fillText(label(t), cx + cw + 4, T + (1 - (t - z0) / (z1 - z0)) * ph + 4);
+  g.save(); g.translate(W - 6, T + ph / 2); g.rotate(-Math.PI / 2); g.textAlign = "center"; g.fillText(d.zLabel, 0, 0); g.restore();
+
+  const {i, j} = mapCursorCell(d);
+  g.strokeStyle = "#d00"; g.setLineDash(mapPinned ? [] : [4, 3]); g.beginPath();
+  g.moveTo(X(d.f[j]), T); g.lineTo(X(d.f[j]), T + ph); g.moveTo(L, Y(d.p[i])); g.lineTo(L + pw, Y(d.p[i])); g.stroke();
+  g.setLineDash([]);
+  mapGeom = {L, T, pw, ph, fe, pe, d};
+  $("mapReadout").textContent = `${mapPinned ? "pinned" : "cursor"}: f = ${d.f[j].toFixed(6)} GHz, ${d.pLabel} = ${d.p[i]} ${d.pUnit} `
+    + `(${d.rows[i].averages} traces), ${d.zLabel} = ${label(d.z[i][j])}`;
+  drawXY($("cutF"), d.f, d.z[i], "frequency [GHz]", d.zLabel, `at ${d.p[i]} ${d.pUnit}`, j, false);
+  drawXY($("cutP"), d.p, d.z.map(r => r[j]), `${d.pLabel} [${d.pUnit}]`, d.zLabel, `at ${d.f[j].toFixed(6)} GHz`, i, true);
+}
+function drawXY(c, xs, ys, xLabel, yLabel, title, mark, dots) {
+  const [g, W, H] = prepCanvas(c);
+  if (!xs || !xs.length) { g.fillText("no data", 20, 30); return; }
+  const L = 80, R = 12, T = 22, B = 36, pw = W - L - R, ph = H - T - B;
+  let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  if (x1 === x0) { x0 -= 0.5; x1 += 0.5; }
+  const pad = (y1 - y0) * 0.05 || Math.abs(y0) * 0.05 || 1; y0 -= pad; y1 += pad;
+  const X = v => L + (v - x0) / (x1 - x0) * pw, Y = v => T + (1 - (v - y0) / (y1 - y0)) * ph;
+  g.strokeStyle = "#ddd"; g.beginPath(); g.textAlign = "center";
+  for (const t of ticks(x0, x1, 6)) { g.moveTo(X(t), T); g.lineTo(X(t), T + ph); g.fillText(label(t), X(t), T + ph + 14); }
+  g.textAlign = "right";
+  for (const t of ticks(y0, y1, 5)) { g.moveTo(L, Y(t)); g.lineTo(L + pw, Y(t)); g.fillText(label(t), L - 4, Y(t) + 4); }
+  g.stroke(); g.strokeStyle = "#000"; g.strokeRect(L, T, pw, ph);
+  g.textAlign = "center"; g.fillText(xLabel, L + pw / 2, H - 4);
+  g.save(); g.translate(12, T + ph / 2); g.rotate(-Math.PI / 2); g.fillText(yLabel, 0, 0); g.restore();
+  g.textAlign = "left"; g.fillText(title, L, T - 7);
+  g.save(); g.beginPath(); g.rect(L, T, pw, ph); g.clip();
+  g.beginPath();
+  for (let k = 0; k < xs.length; k++) { const px = X(xs[k]), py = Y(ys[k]); k ? g.lineTo(px, py) : g.moveTo(px, py); }
+  g.stroke();
+  if (dots) for (let k = 0; k < xs.length; k++) { g.beginPath(); g.arc(X(xs[k]), Y(ys[k]), 2, 0, 2 * Math.PI); g.fill(); }
+  if (mark !== undefined) {
+    g.strokeStyle = "#d00"; g.lineWidth = 2; g.beginPath(); g.arc(X(xs[mark]), Y(ys[mark]), 4, 0, 2 * Math.PI); g.stroke();
+  }
+  g.restore();
+}
+function mapPick(e) {
+  if (!mapGeom) return null;
+  const r = $("mapPlot").getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  const {L, T, pw, ph, fe, pe, d} = mapGeom;
+  if (x < L || x > L + pw || y < T || y > T + ph) return null;
+  const f = fe[0] + (x - L) / pw * (fe.at(-1) - fe[0]), p = pe.at(-1) - (y - T) / ph * (pe.at(-1) - pe[0]);
+  let j = 0, i = 0;
+  for (let k = 1; k < d.f.length; k++) if (Math.abs(d.f[k] - f) < Math.abs(d.f[j] - f)) j = k;
+  for (let k = 1; k < d.p.length; k++) if (Math.abs(d.p[k] - p) < Math.abs(d.p[i] - p)) i = k;
+  return {p: d.p[i], j};
+}
+$("mapPlot").onmousemove = e => { if (!mapPinned) { const c = mapPick(e); if (c) { mapCursor = c; drawMap(); } } };
+$("mapPlot").onmouseleave = () => { if (!mapPinned) { mapCursor = null; drawMap(); } };
+$("mapPlot").onclick = e => { const c = mapPick(e); if (!c) return; mapPinned = !mapPinned; mapCursor = c; drawMap(); };
+for (const id of ["mapQty", "mapAuto", "mapMin", "mapMax"]) $(id).onchange = drawMap;
+
+// ---------------------------------------------------------------- settings tab
+// Built from /api/settings (labserver/settings.py). Edited fields are marked * and go to the
+// server together on "save"; it applies them at once and keeps them in settings.local.yaml.
+// Loosening a limit, or turning a safety switch on, asks first. An empty limit box is no bound.
+let cfgData = null;
+
+const cfgShow = (it, v) => v === null || v === undefined ? "" : String(+(v / it.scale).toPrecision(10));
+function cfgText(it, v) {
+  if (it.kind === "bool") return v ? "on" : "off";
+  if (it.kind === "limit") return "[" + (v || [null, null]).map(x => x === null ? "none" : cfgShow(it, x)).join(", ") + "]";
+  return v === null ? "none" : cfgShow(it, v);
+}
+// value in the form now, in server units; undefined if a box holds something that is not a number
+function cfgRead(it) {
+  if (it.kind === "bool") return it.inputs[0].checked;
+  const num = el => el.validity.badInput ? undefined : el.value.trim() === "" ? null : parseFloat(el.value) * it.scale;
+  const vals = it.inputs.map(num);
+  if (vals.includes(undefined)) return undefined;
+  return it.kind === "limit" ? vals : vals[0];
+}
+function cfgSame(a, b) {
+  if (Array.isArray(a) && Array.isArray(b)) return cfgSame(a[0], b[0]) && cfgSame(a[1], b[1]);
+  if (typeof a !== "number" || typeof b !== "number") return a === b;
+  return Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), Math.abs(b));
+}
+function cfgSet(it, v) {
+  if (it.kind === "bool") it.inputs[0].checked = !!v;
+  else if (it.kind === "limit") it.inputs.forEach((el, k) => { el.value = cfgShow(it, (v || [null, null])[k]); });
+  else it.inputs[0].value = cfgShow(it, v);
+}
+function cfgRow(it) {
+  const row = document.createElement("div"); row.className = "f"; it.row = row;
+  const name = document.createElement("span"); name.className = "name"; name.textContent = it.label;
+  row.append(name);
+  const box = placeholder => {
+    const el = document.createElement("input"); el.type = "number"; el.step = "any"; el.placeholder = placeholder;
+    el.addEventListener("input", cfgChanged);
+    el.onkeydown = e => { if (e.key === "Enter") cfgSave(); };
+    return el;
+  };
+  if (it.kind === "bool") {
+    const c = document.createElement("input"); c.type = "checkbox"; c.onchange = cfgChanged;
+    it.inputs = [c]; row.append(c);
+  } else if (it.kind === "limit") {
+    it.inputs = [box("no min"), box("no max")];
+    row.append(it.inputs[0], " .. ", it.inputs[1]);
+  } else {
+    it.inputs = [box(it.nullable ? "none" : "")];
+    row.append(it.inputs[0]);
+  }
+  if (it.unit) row.append(" " + it.unit);
+  cfgSet(it, it.value);
+  if (it.overridden) {      // set in the settings tab: config.yaml says something else
+    const note = document.createElement("span"); note.className = "muted";
+    note.textContent = `  config.yaml: ${cfgText(it, it.config)} `;
+    const b = document.createElement("button"); b.textContent = "back to config";
+    b.title = "put the config.yaml value in the field (then save)";
+    b.onclick = () => { cfgSet(it, it.config); cfgChanged(); };
+    row.append(note, b);
+  }
+  if (it.help) row.append(Object.assign(document.createElement("div"), {className: "help", textContent: it.help}));
+  return row;
+}
+function cfgChanges() {
+  const changes = {}, bad = [];
+  for (const it of cfgData.items) {
+    const v = cfgRead(it);
+    const dirty = v === undefined || !cfgSame(v, it.value);
+    it.row.classList.toggle("dirty", dirty);
+    if (v === undefined) bad.push(`${it.group} ${it.label}`);
+    else if (dirty) changes[it.id] = v;
+  }
+  return {changes, bad};
+}
+function cfgChanged() {
+  const {changes, bad} = cfgChanges(), n = Object.keys(changes).length;
+  $("cfgStatus").textContent = bad.length ? "not a number: " + bad.join(", ") : n ? `${n} unsaved change(s)` : "";
+}
+async function cfgPost(body) {
+  const r = await fetch("/api/settings", {method: "POST", headers: {"content-type": "application/json"},
+                                          body: JSON.stringify(body)});
+  return {ok: r.ok, status: r.status, data: await r.json().catch(() => ({}))};
+}
+async function cfgSave() {
+  const {changes, bad} = cfgChanges();
+  if (bad.length) { message("settings NOT saved, not a number: " + bad.join(", ")); return; }
+  if (!Object.keys(changes).length) { $("cfgStatus").textContent = "nothing to save"; return; }
+  try {
+    let r = await cfgPost({changes});
+    if (r.status === 409 && r.data.error === "confirm") {
+      if (!confirm("This loosens:\n  " + r.data.loosened.join("\n  ") + "\n\nApply it?")) return;
+      r = await cfgPost({changes, confirm: true});
+    }
+    if (!r.ok) throw new Error(`${r.data.error || r.status}: ${r.data.detail || ""}`);
+    cfgData = r.data; await buildCfgTab();
+    $("cfgStatus").textContent = `saved ${new Date().toLocaleTimeString()}: ` + (r.data.changed.join(", ") || "nothing changed");
+    loadInstrumentInfo();       // the knobs clamp to the limits
+  } catch (e) { message("settings NOT saved: " + e.message); }
+}
+async function cfgExpDefaults() {
+  const fs = document.createElement("fieldset"), lg = document.createElement("legend");
+  lg.textContent = "Experiment defaults"; fs.append(lg);
+  fs.append(Object.assign(document.createElement("div"), {className: "shelp", textContent:
+    'Saved with "save as defaults" on an experiment\'s page: what its form starts with in a browser that '
+    + 'has not used it yet, and after its "defaults" button. Each browser also keeps its own last values.'}));
+  try { if (!experiments) experiments = await api("GET", "/api/experiments"); }
+  catch (e) { fs.append(e.message); return fs; }
+  for (const x of experiments) {
+    const row = document.createElement("div"); row.className = "f";
+    const name = document.createElement("span"); name.className = "name"; name.textContent = x.title;
+    row.append(name, x.saved_defaults.length ? `saved: ${x.saved_defaults.join(", ")} ` : "built-in");
+    if (x.saved_defaults.length) {
+      const b = document.createElement("button"); b.textContent = "back to built-in";
+      b.onclick = async () => {
+        try { replaceExperiment(await api("DELETE", `/api/experiments/${x.id}/defaults`)); await buildCfgTab(); }
+        catch (e) { message(e.message); }
+      };
+      row.append(b);
+    }
+    fs.append(row);
+  }
+  return fs;
+}
+async function buildCfgTab() {
+  const form = $("cfgForm"); form.innerHTML = "";
+  $("cfgFile").textContent = cfgData.file ? `Changes apply at once and are kept in ${cfgData.file}, over config.yaml.`
+    : "Changes apply at once but are not kept (no settings file).";
+  for (const sec of cfgData.sections) {
+    const items = cfgData.items.filter(it => it.section === sec.id);
+    if (!items.length) continue;
+    const fs = document.createElement("fieldset"), lg = document.createElement("legend");
+    lg.textContent = sec.title; fs.append(lg);
+    if (sec.help) fs.append(Object.assign(document.createElement("div"), {className: "shelp", textContent: sec.help}));
+    let group = null;
+    for (const it of items) {
+      if (it.group !== group) {
+        group = it.group;
+        fs.append(Object.assign(document.createElement("div"), {className: "group", textContent: group}));
+      }
+      fs.append(cfgRow(it));
+    }
+    form.append(fs);
+  }
+  form.append(await cfgExpDefaults());
+  cfgChanged();
+}
+async function showSettingsTab() {
+  try { cfgData = await api("GET", "/api/settings"); await buildCfgTab(); }
+  catch (e) { message("settings: " + e.message); }
+}
+$("cfgSave").onclick = cfgSave;
+$("cfgDiscard").onclick = () => { buildCfgTab(); $("cfgStatus").textContent = "changes discarded"; };
+
+// ---------------------------------------------------------------- tabs
+// #instruments (default), #experiments, #experiments/<id>, #settings. The live view runs only
+// on the instruments tab, so the SA/VNA are not read for nothing while an experiment is set up.
+let tab = null;
+function route() {
+  const [name, sub] = location.hash.replace(/^#/, "").split("/");
+  const next = ["experiments", "settings"].includes(name) ? name : "instruments";
+  for (const a of document.querySelectorAll("#tabs a")) a.classList.toggle("on", a.dataset.tab === next);
+  for (const t of ["instruments", "experiments", "settings"]) $("tab-" + t).hidden = next !== t;
+  if (next !== tab) {
+    tab = next;
+    if (tab === "instruments") { if (!serverStopped) connectLive(view); requestDraw(); } else disconnectLive();
+    if (tab === "settings") showSettingsTab();
+  }
+  if (tab === "experiments") showExperiments(sub);
+}
+window.addEventListener("hashchange", route);
+
+// ---------------------------------------------------------------- start
+async function loadInstrumentInfo() {
+  try {
+    const info = await api("GET", "/api/instruments");
+    for (const [name, v] of Object.entries(info)) limits[name] = v.limits || {};
+    switchSpecs = (info.warm_switches || {}).switches || {};
+  } catch (e) { message(e.message); }
+}
+(async () => {
+  await loadInstrumentInfo();
+  buildControls();
+  buildSwitches();
+  document.querySelector("input[name=view][value=spa]").checked = true;   // the browser may restore another choice
+  view = "spa"; buildSettings(); route();     // route() starts the live view on the instruments tab; refreshAll reads the settings
+  refreshStatus(); refreshAll();
+  setInterval(refreshStatus, 2000);       // server-side flags only, no instrument I/O
+})();
+</script>
+</body>
+</html>

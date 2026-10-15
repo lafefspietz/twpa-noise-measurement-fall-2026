@@ -1,7 +1,8 @@
 # Results by Youngdu Kim
 ### Summary
-Attenuation: 102.25 dB (including Fano, 3-level)
-
+Attenuation: 102.36 dB (including Fano, 3-level, f0 5.576 GHz)  
+S21 at 5.576 GHz: -48.644 dB  (measured using vna with cw mode, -20dBm power, 101 points, 10hz ifbw, 10 averages)
+System Gain at 5.576 GHz: 53.72 dB (TWPA off) 
 
 ## Anti-crossings in the qubit flux scan (13-10-2026)
 
@@ -35,3 +36,8 @@ The flux scan (`1_qubit_flux_scan`) shows two anti-crossings.
 - Flux point is also changed a bit.
 
 ![qubit flux scan 2](figures/qubit_scan_changed.png)
+
+## Y factor measurement
+
+- Originally, y factor requires to know temperature of noise source. We use calibrated gain from qubit power scan data to deduce wire's temperature.
+- After that, we can use y factor + pump on/off gain measurement to do noise measurement of JTWPA at all frequencies.

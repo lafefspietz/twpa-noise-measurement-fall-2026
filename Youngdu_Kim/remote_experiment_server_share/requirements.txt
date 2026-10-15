@@ -1,0 +1,12 @@
+numpy
+pyyaml
+pyvisa
+pyvisa-py==0.8.1    # Linux (no NI-VISA); labserver/usbtmc_patch.py is written against this version
+pyusb
+RsInstrument
+windfreak
+pyserial
+fastapi
+uvicorn[standard]
+pytest
+httpx

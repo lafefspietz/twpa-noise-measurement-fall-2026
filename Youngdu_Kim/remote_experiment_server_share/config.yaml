@@ -1,0 +1,111 @@
+# Remote experiment server configuration.
+# Instrument keys (spa, vna, ...) are the names used everywhere: API paths, UI panels, JSON state snapshots.
+#
+# Limits, live-view caps, timeouts/retries and experiment caps can also be changed in the
+# web UI (settings tab) while the server runs. Those changes go to settings.local.yaml next
+# to this file (not in git) and are applied over this file at start-up; this file is the
+# base the settings tab can go "back to".
+
+server:
+  # all       = every network: LAN, Tailscale and this machine. There is no login, so
+  #             anyone who can reach this computer can drive the instruments.
+  # tailscale = only over Tailscale (this machine's 100.x address)
+  # local     = only from this machine
+  # (or a specific IP)
+  host: all
+  port: 8000
+
+data_dir: data            # relative to this file; files go to data/DD-MM-YYYY/{epoch}-{name}.json
+
+# "outputs off" waits this long for a busy instrument, then sends safe_off() anyway.
+off_lock_timeout_s: 3.0
+
+visa_library: ""          # "" = default (NI-VISA if installed, else pyvisa-py). "@py" = always pyvisa-py.
+
+live:                     # live view frame-rate caps (the instrument may be slower)
+  max_sweep_s: 100        # don't start a live sweep longer than this (it would lock the instrument);
+                          # counts averages (SA) / sweep count (VNA): sweep time x N
+  max_retries: 2          # retries per live read (the driver's own count, 50 for the SA, is for jobs)
+  state_refresh_s: 5      # re-read settings this often, so front-panel changes reach the x axis
+  spa: {max_fps: 20}
+  vna: {max_fps: 10}
+
+sim:
+  seed: 1
+  time_scale: 1.0         # 1.0 = sims sleep for realistic sweep times; 0 = instant (tests)
+  fail_rate: 0.0          # probability a simulated trace read fails (exercises retry paths)
+
+instruments:
+  # limits: {param: [min, max]} are checked before anything is sent. Adjust to the setup.
+  # Either end may be null (no bound). The settings tab lists every limit a driver offers;
+  # a limit not set here or there is no limit.
+
+  # spa, vna, qubit_flux_bias and noise_source_bias are GPIB instruments, each on its own
+  # USB-GPIB adapter (GpibUsb, USB 03EB:2065, USBTMC). The adapter's serial string is the
+  # instrument identity, so `match` works on both pyvisa-py and NI-VISA resource names.
+  spa:
+    driver: e7405a
+    match: "E7405A"       # substring of the VISA resource name
+    timeout_ms: 10000
+    max_retries: 50
+    retry_delay_s: 0.1
+    settle_after_read_s: 0.05   # notebooks sleep 50 ms after each zero-span read
+    single_sweep: true    # INIT:CONT OFF while reading, so each trace starts after the last setting change
+    init_commands:        # sent once on connect ("fix defaults" cell, noise-diode-y-factor.ipynb)
+      - ":AVER:TYPE POW"      # power averaging (no 2.51 dB log-video under-reporting)
+      - ":CAL:AUTO OFF"       # auto-alignment caused random VISA timeouts (E7405A has no :CAL:ALIG:AUTO)
+      - ":POW:ATT 0"          # fixed input attenuation
+
+  vna:
+    driver: zva
+    match: "ZVA24"
+    timeout_ms: 10000
+    trace_name: Trc1
+    restore_continuous: true    # INIT:CONT ON + local when reading stops (the notebooks did it after each trace)
+    limits:
+      power_dbm: [-80.0, 0.0]
+
+  rf_synth:               # Windfreak SynthHD
+    driver: windfreak
+    port: COM3            # fallback if hwid_match finds nothing
+    hwid_match: "A3E5"
+    channels: {probe: 0, pump: 1}   # A = rf_probe, B = rf_pump (TWPA pump)
+    # reference_mode: "external"    # uncomment to force; never forced otherwise
+    limits:
+      probe_power_dbm: [-80.0, 0.0]
+      pump_power_dbm: [-80.0, 10.0]
+
+  qubit_flux_bias:        # Yokogawa GS210
+    driver: gs210
+    match: "GS210"
+    limits:
+      level: [-1.0, 1.0]      # V, in VOLT mode; notebooks sweep -0.28..-0.24 V
+      # level_a: [-1.0e-3, 1.0e-3]   # A, in CURR mode (only with allow_current_mode)
+    allow_current_mode: false # CURR is refused, and so are level/output changes while the source is in CURR
+    ramp_step: 0.05           # V per step while the output is on
+    ramp_delay_s: 0.05
+    # For noise-diode use (twpa_calibration.ipynb: 28 V on the 30 V range) recable and
+    # set level: [0.0, 30.0], no ramp.
+
+  noise_source_bias:      # Agilent 33220A as DC source (hot wire)
+    driver: fgen33220a
+    match: "33220A"
+    limits:
+      offset_v: [-0.2, 0.2]   # V; the range the notebooks sweep
+
+  warm_switches:           # Ethernet through the hub's USB LAN adapter (Realtek USB GbE)
+    driver: rc4spdt
+    ip: 169.254.12.12
+    # Signal chain (twpa_calibration.ipynb cell 7):
+    #   fridge_in (D) -> attenuator -> fridge -> rx_source (C, or noise diode) -> receiver (B)
+    # Channel A is not connected.
+    switches:
+      fridge_in: {channel: D, positions: {vna: 1, rf_probe: 2}}
+      rx_source: {channel: C, positions: {fridge: 1, noise_diode: 2}}
+      receiver:  {channel: B, positions: {vna: 1, spa: 2}}
+
+  attenuator:             # Mini-Circuits RCDAT-44G-63, between fridge_in (VNA or SynthHD probe) and the fridge
+    driver: rcdat
+    ip: 169.254.11.11
+    limits:
+      attenuation_db: [0.0, 63.0]
