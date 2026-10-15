@@ -3,6 +3,8 @@
 Attenuation: 102.36 dB (including Fano, 3-level, f0 5.576 GHz)  
 S21 at 5.576 GHz: -48.644 dB  (measured using vna with cw mode, -20dBm power, 101 points, 10hz ifbw, 10 averages)
 System Gain at 5.576 GHz: 53.72 dB (TWPA off) 
+Let SA and VNA gain is same (there is switch between, might have to calibrate between them)
+
 
 ## Anti-crossings in the qubit flux scan (13-10-2026)
 
@@ -15,12 +17,12 @@ The flux scan (`1_qubit_flux_scan`) shows two anti-crossings.
 ![qubit flux scan](figures/qubit_scan_full.png)
 
 
-## Qubit power scan at  5.58 GHz (13-10-2026)  
+## Qubit power scan at  5.576 GHz (13-10-2026)  
 
 - For other frequencies, qubit frequency changed during power sweep. Need magnetic shielding?
 
 ![qubit power scan 7.4 GHz](figures/qubit_power_scan_7_4.png)
-![qubit power scan 5.58 GHz](figures/qubit_power_scan_5_58.png)
+![qubit power scan 5.576 GHz](figures/qubit_power_scan_5_58.png)
 
 
 ## Qubit power calibration fitting (14-10-2026)  
@@ -37,7 +39,15 @@ The flux scan (`1_qubit_flux_scan`) shows two anti-crossings.
 
 ![qubit flux scan 2](figures/qubit_scan_changed.png)
 
-## Y factor measurement
+## Y factor measurement (15-10-2026)
 
 - Originally, y factor requires to know temperature of noise source. We use calibrated gain from qubit power scan data to deduce wire's temperature.
 - After that, we can use y factor + pump on/off gain measurement to do noise measurement of JTWPA at all frequencies.
+
+- When we measure noise, equivalent noise power bandwidth (ENBW) should be considered. I set 1.144 = 1.128(theoretical value for 4-pole filter) times 1.012 (measured 3dB bandwidth)
+
+- When measuring noise, log scale reduces result by 2.51 dB. so added 2.51 dB.
+
+- Measured temperature at 0.2V bias is ~ 3.3 K
+
+![yfactor fit](figures/yfactor_fit.png)
