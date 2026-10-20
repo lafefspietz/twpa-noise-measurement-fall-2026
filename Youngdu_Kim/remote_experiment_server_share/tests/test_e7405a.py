@@ -207,3 +207,44 @@ def test_align_without_cable_skips_rf(spa):
     assert res["after"]["align_rf_needed"] and res["after"]["failed"] == []
     assert spa.t.query("SYST:ERR?").startswith("+0")                     # queue drained
     assert len(spa.read_trace().y) == 401           # the SA reads again afterwards
+
+
+def garble(spa, n: int, match: str = ":FREQ:CENT"):
+    """The next n writes starting with match never arrive as sent: the SA queues the
+    errors a garbled transfer gives instead."""
+    write, left = spa.t.write, [n]
+
+    def flaky(cmd):
+        if cmd.startswith(match) and left[0] > 0:
+            left[0] -= 1
+            spa.t._errors += ['-102,"Syntax error"', '-420,"Query UNTERMINATED"']
+            return
+        write(cmd)
+    spa.t.write = flaky
+
+
+def test_apply_sends_again_after_a_garbled_command(spa, caplog):
+    garble(spa, 2)
+    s = spa.apply(center_hz=6.17999e9, span_hz=5e5)
+    assert (s["center_hz"], s["span_hz"]) == (6.17999e9, 5e5)
+    assert "sending it again (3/3)" in caplog.text
+
+
+def test_apply_gives_up_after_three_garbled_attempts(spa):
+    garble(spa, 3)
+    with pytest.raises(InstrumentError, match="Syntax error") as e:
+        spa.apply(center_hz=6e9)
+    assert e.value.errors == ['-102,"Syntax error"', '-420,"Query UNTERMINATED"']
+
+
+def test_apply_does_not_resend_a_refused_value(spa):
+    write, sent = spa.t.write, []
+
+    def refusing(cmd):
+        sent.append(cmd)
+        spa.t._errors.append('-222,"Data out of range"')
+    spa.t.write = refusing
+    with pytest.raises(InstrumentError, match="Data out of range"):
+        spa.apply(center_hz=6e9)
+    assert sent == [":FREQ:CENT 6000000000"]
+    spa.t.write = write

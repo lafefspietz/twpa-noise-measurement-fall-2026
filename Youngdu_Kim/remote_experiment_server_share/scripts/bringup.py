@@ -37,7 +37,8 @@ REAPPLY = {
     "e7405a": ["center_hz", "span_hz", "rbw_hz", "vbw_hz", "detector", "ref_level", "unit",
                "attenuation_db", "average_type"],
     "zva": ["start_hz", "stop_hz", "points", "ifbw_hz", "power_dbm", "sweep_type", "cw_hz"],
-    "windfreak": [f"{ch}_{p}" for ch in ("probe", "pump") for p in ("frequency_hz", "power_dbm")],
+    "windfreak": ["pump_frequency_hz", "pump_power_dbm"],
+    "smw200a": ["probe_frequency_hz", "probe_power_dbm"],
     "gs210": ["range", "level"],
     "fgen33220a": ["function", "offset_v"],
     "rcdat": ["attenuation_db"],
@@ -119,8 +120,8 @@ def bringup(name, icfg, rm, world):
     driver_name = icfg["driver"]
     print(f"\n========== {name} ({driver_name}) ==========")
     opened = {}
-    step("open", lambda: opened.setdefault("inst", DRIVERS[driver_name].open(
-        name, icfg, sim=args.sim, world=world, rm=rm)).t.resource_name)
+    step("open", lambda: getattr(opened.setdefault("inst", DRIVERS[driver_name].open(   # windfreak.SynthHD has no
+        name, icfg, sim=args.sim, world=world, rm=rm)).t, "resource_name", "(serial)"))   # resource_name
     inst = opened.get("inst")
     if inst is None:
         return

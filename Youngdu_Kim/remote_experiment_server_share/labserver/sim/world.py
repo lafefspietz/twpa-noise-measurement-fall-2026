@@ -44,11 +44,19 @@ class SimWorld:
     diode_w_per_hz: tuple[float, float] = (0.4e-15, 12e-15)   # (off, on) at the warm receiver
     fridge_atten_db: float = 103.55     # room temperature -> qubit ("A" in the notebook)
     chain_gain_db: float = 70.0         # qubit -> receiver
+    # part of the chain noise that is already there at the TWPA input (amplified by its
+    # gain); the rest is added after it (HEMT and up), so the pump improves the SNR
+    twpa_input_noise_fraction: float = 0.1
+    twpa_center_hz: float = 8.5e9       # pump frequency of the best gain
+    twpa_bandwidth_hz: float = 1.0e9    # gain (in dB) falls off as a Gaussian of this width
     qubit_max_hz: float = 5.58e9        # flux sweet spot at 0 V
     flux_period_v: float = 2.0          # one flux quantum in bias volts
     qubit_linewidth_hz: float = 1e6
     qubit_depth: float = 0.6
     qubit_psat_w: float = 1e-17
+    # SynthHD clock error against the SA (no shared 10 MHz): the rf_probe tone reaches the
+    # fridge at frequency * (1 + this * 1e-6)
+    synth_clock_error_ppm: float = 0.0
     unrouted_w_per_hz: float = 1e-21    # what a receiver sees when not switched in
     # extra tones at the SA input for tests: name -> (frequency Hz, power W)
     tones: dict[str, tuple[float, float]] = field(default_factory=dict)
@@ -80,14 +88,17 @@ class SimWorld:
         pump = self._source("rf_pump")
         if pump is None or not 7e9 <= pump["frequency_hz"] <= 10e9:
             return 0.0
-        return float(np.clip(3.0 * (pump["power_dbm"] + 3.0), 0.0, 20.0))
+        shape = np.exp(-0.5 * ((pump["frequency_hz"] - self.twpa_center_hz) / self.twpa_bandwidth_hz) ** 2)
+        return float(np.clip(3.0 * (pump["power_dbm"] + 3.0), 0.0, 20.0) * shape)
 
     def fridge_input(self):
         """(frequency, power W at room-temperature fridge input) or None."""
-        src = self._source("vna" if self.switch_ports["D"] == 1 else "rf_probe")
+        name = "vna" if self.switch_ports["D"] == 1 else "rf_probe"
+        src = self._source(name)
         if src is None:
             return None
-        return src["frequency_hz"], float(dbm_to_w(src["power_dbm"] - self.attenuation_db))
+        f = src["frequency_hz"] * (1 + self.synth_clock_error_ppm * 1e-6 if name == "rf_probe" else 1)
+        return f, float(dbm_to_w(src["power_dbm"] - self.attenuation_db))
 
     def qubit_s21(self, freqs_hz, power_at_qubit_w: float) -> np.ndarray:
         depth = self.qubit_depth / (1 + power_at_qubit_w / self.qubit_psat_w)
@@ -104,7 +115,9 @@ class SimWorld:
         if self.switch_ports["C"] == 2:
             return self.diode_w_per_hz[1] if self.noise_diode_v > 20 else self.diode_w_per_hz[0]
         g_twpa = 10 ** (self.twpa_gain_db() / 10)
-        return (self.chain_noise_w_per_hz + self.hot_wire_w_per_hz_per_v2 * self.noise_source_v ** 2) * g_twpa
+        frac = self.twpa_input_noise_fraction
+        return (self.chain_noise_w_per_hz * (frac * g_twpa + 1 - frac)
+                + self.hot_wire_w_per_hz_per_v2 * self.noise_source_v ** 2 * g_twpa)
 
     def spa_power_w(self, freqs_hz: np.ndarray, rbw_hz: float) -> np.ndarray:
         """Mean power in an RBW filter centred at each frequency."""

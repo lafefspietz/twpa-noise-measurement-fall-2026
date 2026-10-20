@@ -9,7 +9,7 @@ One computer is connected to every instrument and runs this server. Anyone on th
 ## Using it
 Open `http://<server>:8000` in a browser (see [Network access](#network-access)). The page has three tabs:
 - **instruments**: the live SA or VNA trace (hold, running average, **save trace**), the settings of the selected instrument, and knobs for the TWPA pump, the probe signal, the qubit flux bias, the noise source, the attenuator and the warm switches. Turn a knob with the mouse wheel, or type a value and press Enter. The SA view also shows its alignment status, with a **do align** button (about 3-6 min; without a cable from AMPTD REF OUT to INPUT only the filters are aligned, not RF). The page reads the instruments when it loads and when you press **refresh**; it does not poll them.
-- **experiments**: qubit flux sweep, qubit power sweep and Y factor measurement. Fill in the form; the server checks it as you type (number of points, time, errors and warnings) without touching any instrument. **start** runs it, one experiment at a time; the instruments it uses are reserved until it ends. **stop** ends it after the current trace, and the points measured so far are still saved.
+- **experiments**: qubit flux sweep, qubit power sweep (on the VNA, or with the SMW200A probe and the SA), Y factor measurement, TWPA pump sweep (gain and SNR improvement vs pump frequency and power, on the SA) TWPA signal sweep (SNR vs signal frequency or power at a fixed pump, optionally vs the noise source bias too) and TWPA noise spectrum (wide SA spectra with the hot wire at 0 V and on, the pump off and on: the hot-wire Y and gain at every frequency) and TWPA VNA gain (VNA S21 with the pump off and on: the TWPA gain at every frequency). Fill in the form; the server checks it as you type (number of points, time, errors and warnings) without touching any instrument. **start** runs it, one experiment at a time; the instruments it uses are reserved until it ends. **stop** ends it after the current trace, and the points measured so far are still saved.
 - **settings**: instrument limits, live-view caps, I/O timeouts and experiment caps. Loosening a limit asks for a confirmation.
 
 Safety:
@@ -19,12 +19,15 @@ Safety:
 
 Saved data: `data/DD-MM-YYYY/<epoch>-<label>.json` on the server. **save trace** also puts a copy on your computer, and a finished experiment shows a download link. Every record has a snapshot of all instrument settings at the time.
 
+A finished experiment also has **download interactive HTML**: one file that opens in any browser, offline, with the same plots as the experiments tab (hover for values; for the TWPA pump and signal sweeps, each point's spectrum and values), every setting of the run, and the state of every instrument. For a record JSON copied elsewhere, `python -m labserver.report <record.json>` writes the same page next to it.
+
 ## Instruments
 | Name (`config.yaml`) | Instrument | Link | Driver |
 |---|---|---|---|
 | `spa` | HP E7405A spectrum analyzer | USB-GPIB (VISA) | `e7405a.py` |
 | `vna` | R&S ZVA24 | USB-GPIB (RsInstrument) | `zva.py` |
-| `rf_synth` | Windfreak SynthHD (probe = A, pump = B) | USB serial (windfreak package) | `windfreak.py` |
+| `rf_probe` | R&S SMW200A (probe / signal tone, RF A) | USB-GPIB (VISA) | `smw200a.py` |
+| `rf_synth` | Windfreak SynthHD (TWPA pump = B; A unused) | USB serial (windfreak package) | `windfreak.py` |
 | `qubit_flux_bias` | Yokogawa GS210 | USB-GPIB (VISA) | `gs210.py` |
 | `noise_source_bias` | Agilent 33220A (DC, hot wire) | USB-GPIB (VISA) | `fgen33220a.py` |
 | `warm_switches` | Mini-Circuits RC-4SPDT-A18 | Ethernet HTTP | `rc4spdt.py` |

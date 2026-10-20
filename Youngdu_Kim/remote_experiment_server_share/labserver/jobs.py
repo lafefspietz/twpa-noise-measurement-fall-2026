@@ -44,6 +44,7 @@ class Job:
         self.finished: float | None = None
         self.file: str | None = None
         self.url: str | None = None
+        self.html_url: str | None = None      # the interactive HTML page of the saved record
         self._stop = threading.Event()
         self.thread: threading.Thread | None = None
 
@@ -90,6 +91,7 @@ class Job:
                "traces_done": self.traces_done, "traces_total": self.traces_total,
                "started": self.started, "elapsed_s": round(elapsed, 1),
                "eta_s": None if eta is None else round(eta, 1), "file": self.file, "url": self.url,
+               "html_url": self.html_url,
                "n_rows": len(self.rows)}
         if since is not None:
             out["params"] = self.params
@@ -150,6 +152,7 @@ class JobRunner:
                           "sweep_time": round(job.finished - job.started, 1)}
                 path = save_record(self.data_dir, job.params.get("label") or job.exp.id, record)
                 job.file, job.url = path.name, f"/api/data/{path.parent.name}/{path.name}"
+                job.html_url = f"/api/data/{path.parent.name}/{path.stem}.html"
                 log.info("job %s saved %s", job.id, path)
             except Exception as e:
                 job.message += f"; SAVE FAILED: {type(e).__name__}: {e}"

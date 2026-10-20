@@ -40,7 +40,7 @@ instruments:
   # Either end may be null (no bound). The settings tab lists every limit a driver offers;
   # a limit not set here or there is no limit.
 
-  # spa, vna, qubit_flux_bias and noise_source_bias are GPIB instruments, each on its own
+  # spa, vna, rf_probe, qubit_flux_bias and noise_source_bias are GPIB instruments, each on its own
   # USB-GPIB adapter (GpibUsb, USB 03EB:2065, USBTMC). The adapter's serial string is the
   # instrument identity, so `match` works on both pyvisa-py and NI-VISA resource names.
   spa:
@@ -65,14 +65,21 @@ instruments:
     limits:
       power_dbm: [-80.0, 0.0]
 
-  rf_synth:               # Windfreak SynthHD
-    driver: windfreak
+  rf_probe:               # R&S SMW200A (RF A, 100 kHz-44 GHz): the probe / signal tone into fridge_in
+    driver: smw200a
+    match: "SMW200A"
+    timeout_ms: 5000
+    channels: {probe: 1}  # role -> RF path (SOURce1/OUTPut1); keys are probe_frequency_hz, ...
+    limits:
+      probe_power_dbm: [-145.0, 0.0]
+
+  rf_synth:               # Windfreak SynthHD: the TWPA pump (channel B). Channel A is not used
+    driver: windfreak     # since the SMW200A took over the probe (2026-10-19); "outputs off" still turns it off.
     port: COM3            # fallback if hwid_match finds nothing
     hwid_match: "A3E5"
-    channels: {probe: 0, pump: 1}   # A = rf_probe, B = rf_pump (TWPA pump)
+    channels: {pump: 1}   # B = rf_pump (TWPA pump)
     # reference_mode: "external"    # uncomment to force; never forced otherwise
     limits:
-      probe_power_dbm: [-80.0, 0.0]
       pump_power_dbm: [-80.0, 10.0]
 
   qubit_flux_bias:        # Yokogawa GS210
@@ -100,11 +107,11 @@ instruments:
     #   fridge_in (D) -> attenuator -> fridge -> rx_source (C, or noise diode) -> receiver (B)
     # Channel A is not connected.
     switches:
-      fridge_in: {channel: D, positions: {vna: 1, rf_probe: 2}}
+      fridge_in: {channel: D, positions: {vna: 1, rf_probe: 2}}   # rf_probe = the SMW200A
       rx_source: {channel: C, positions: {fridge: 1, noise_diode: 2}}
       receiver:  {channel: B, positions: {vna: 1, spa: 2}}
 
-  attenuator:             # Mini-Circuits RCDAT-44G-63, between fridge_in (VNA or SynthHD probe) and the fridge
+  attenuator:             # Mini-Circuits RCDAT-44G-63, between fridge_in (VNA or SMW200A probe) and the fridge
     driver: rcdat
     ip: 169.254.11.11
     limits:

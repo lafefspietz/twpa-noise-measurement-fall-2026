@@ -45,21 +45,55 @@ def test_attenuator_rejects(lab, bad, msg):
 def test_windfreak_channels(lab, world):
     s = lab["rf_synth"].apply(pump_enable=True, pump_frequency_hz=8.5e9, pump_power_dbm=7)
     assert (s["pump_enable"], s["pump_frequency_hz"], s["pump_power_dbm"]) == (True, 8.5e9, 7)
-    assert s["probe_enable"] is False
-    assert world.sources["rf_pump"]["on"]
+    assert "probe_enable" not in s          # channel A is not named: the probe is the SMW200A
+    assert world.sources["rf_pump"]["on"] and not world.sources["rf_probe"]["on"]
 
 
 def test_windfreak_limits_and_safe_off(lab, world):
     with pytest.raises(InstrumentError, match="outside limit"):
         lab["rf_synth"].apply(pump_power_dbm=15)
-    lab["rf_synth"].apply(probe_enable=True, pump_enable=True)
+    with pytest.raises(InstrumentError, match="unknown parameter"):
+        lab["rf_synth"].apply(probe_enable=True)
+    lab["rf_synth"].apply(pump_enable=True)
+    lab["rf_synth"].t[0].enable = True      # unnamed channel A left on (front panel, an old session)
     lab["rf_synth"].safe_off()
-    assert not world.sources["rf_probe"]["on"] and not world.sources["rf_pump"]["on"]
+    assert not world.sources["rf_synth_a"]["on"] and not world.sources["rf_pump"]["on"]
 
 
 def test_windfreak_device_range_errors_are_instrument_errors(lab):
     with pytest.raises(InstrumentError):
-        lab["rf_synth"].apply(probe_frequency_hz=30e9)
+        lab["rf_synth"].apply(pump_frequency_hz=30e9)
+
+
+# ---- SMW200A (probe) ----
+def test_smw200a_probe_on_off_and_state(lab, world):
+    s = lab["rf_probe"].apply(probe_frequency_hz=5.58e9, probe_power_dbm=-120.5, probe_enable=True)
+    assert (s["probe_enable"], s["probe_frequency_hz"], s["probe_power_dbm"]) == (True, 5.58e9, -120.5)
+    assert (s["probe_freq_mode"], s["probe_modulation"], s["probe_iq"], s["reference_source"]) == ("CW", False, False,
+                                                                                                    "INT")
+    assert world.sources["rf_probe"] == {"on": True, "frequency_hz": 5.58e9, "power_dbm": -120.5}
+    lab["rf_probe"].safe_off()
+    assert not world.sources["rf_probe"]["on"]
+
+
+def test_smw200a_sets_frequency_and_level_before_rf_on(lab):
+    sent = []
+    write = lab["rf_probe"].t.write
+    lab["rf_probe"].t.write = lambda cmd: (sent.append(cmd), write(cmd))[1]
+    lab["rf_probe"].apply(probe_enable=True, probe_power_dbm=-30, probe_frequency_hz=6e9)
+    assert sent[-1] == ":OUTP1:STAT ON" and len(sent) == 3
+    sent.clear()
+    lab["rf_probe"].apply(probe_frequency_hz=5e9, probe_enable=False)
+    assert sent[0] == ":OUTP1:STAT OFF"
+
+
+def test_smw200a_limits_and_range(lab):
+    with pytest.raises(InstrumentError, match="outside limit"):
+        lab["rf_probe"].apply(probe_power_dbm=5)
+    with pytest.raises(InstrumentError, match="SMW200A range"):
+        lab["rf_probe"].apply(probe_frequency_hz=50e9)
+    with pytest.raises(InstrumentError, match="unknown parameter"):
+        lab["rf_probe"].apply(pump_enable=True)
 
 
 def test_windfreak_does_not_touch_reference_on_connect(lab):

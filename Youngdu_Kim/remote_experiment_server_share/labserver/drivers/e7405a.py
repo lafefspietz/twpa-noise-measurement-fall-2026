@@ -24,6 +24,15 @@ CAL_FAILURE_BITS = {2: "TG", 3: "RF", 4: "IF", 5: "LO", 6: "ADC", 7: "FM demod",
 CAL_RF_SKIPPED, CAL_RF_NEEDED, CAL_NEEDED = 1 << 11, 1 << 12, 1 << 14
 OPER_CALIBRATING = 1        # STATus:OPERation condition bit 0
 CAL_NEEDS_CABLE = "+652"    # "Connect Calibration Output to Input": CAL:ALL without the cable, RF skipped
+# A command garbled on the USB-GPIB link comes back as SCPI command errors (-102 Syntax
+# error, -113 Undefined header) or -420 Query UNTERMINATED, in bursts between read
+# timeouts (seen 2026-10-19): an apply() that gets only those sends its settings again.
+APPLY_ATTEMPTS = 3
+
+
+def garbled(errors: list[str]) -> bool:
+    """Only the errors a garbled transfer gives (not a value the SA refused, -2xx)."""
+    return bool(errors) and all(e.startswith(("-1", "-420")) for e in errors)
 
 
 def decode_alignment(cond: int) -> dict:
@@ -112,7 +121,16 @@ class E7405A(Instrument):
         # The reference level is in the SA unit, so the unit (and the scale, which can
         # change the unit) goes first: "unit W, ref level 2e-8" means 2e-8 W.
         rank = {"scale": 1, "unit": 2, "ref_level": 3}
-        return super().apply(**dict(sorted(params.items(), key=lambda kv: rank.get(kv[0], 0))))
+        ordered = dict(sorted(params.items(), key=lambda kv: rank.get(kv[0], 0)))
+        # settings are idempotent, so after a garbled command all of them are sent again
+        for attempt in range(1, APPLY_ATTEMPTS + 1):
+            try:
+                return super().apply(**ordered)
+            except InstrumentError as e:
+                if attempt == APPLY_ATTEMPTS or not garbled(e.errors):
+                    raise
+                log.warning("%s: apply(%s) got %s (a garbled transfer?); sending it again (%d/%d)",
+                            self.name, ordered, e.errors, attempt + 1, APPLY_ATTEMPTS)
 
     def check_limit(self, key, value):
         super().check_limit(key, value)

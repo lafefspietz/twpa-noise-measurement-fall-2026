@@ -32,7 +32,8 @@ def mgr(cfg, world):
 
 
 def outputs_on(mgr):
-    mgr.apply("rf_synth", pump_frequency_hz=8.5e9, pump_power_dbm=7, pump_enable=True, probe_enable=True)
+    mgr.apply("rf_synth", pump_frequency_hz=8.5e9, pump_power_dbm=7, pump_enable=True)
+    mgr.apply("rf_probe", probe_frequency_hz=6e9, probe_power_dbm=-20, probe_enable=True)
     mgr.apply("vna", output=True)
     mgr.apply("qubit_flux_bias", range=1, level=-0.26, output=True)
     mgr.apply("noise_source_bias", function="DC", offset_v=0.2, output=True)
@@ -102,7 +103,7 @@ def test_outputs_off_turns_everything_off_and_blocks_commands_until_end_halt(mgr
     assert not all_off(world)
     results = mgr.outputs_off()
     assert all_off(world)
-    assert results["rf_synth"] == "off"
+    assert results["rf_synth"] == results["rf_probe"] == "off"
     with pytest.raises(OutputsOff):
         mgr.apply("vna", output=True)
     mgr.end_halt()

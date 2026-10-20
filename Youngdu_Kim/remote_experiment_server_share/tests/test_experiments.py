@@ -1,5 +1,6 @@
 import copy
 import json
+import re
 import time
 from pathlib import Path
 
@@ -64,7 +65,9 @@ def wait_job(client, timeout=20.0):
 # ---------------------------------------------------------------- settings / plan
 def test_list_and_describe(client):
     exps = client.get("/api/experiments").json()
-    assert [e["id"] for e in exps] == ["qubit_flux_sweep", "qubit_power_sweep", "y_factor_measurement"]
+    assert [e["id"] for e in exps] == ["qubit_flux_sweep", "qubit_power_sweep", "qubit_power_sweep_sa",
+                                     "y_factor_measurement", "twpa_pump_sweep", "twpa_signal_sweep",
+                                     "twpa_noise_spectrum", "twpa_vna_gain"]
     d = client.get(f"{URL}").json()
     seg_param = next(p for p in d["params"] if p["key"] == "segments")
     assert [c["key"] for c in seg_param["columns"]] == ["start_dbm", "stop_dbm", "step_db", "averages"]
@@ -408,7 +411,8 @@ def wait_after(client, params):
 YF_URL = "/api/experiments/y_factor_measurement"
 # 5 biases, 2 passes (the second one reversed), 2 traces each
 YF_SMALL = {"bias_start_v": -0.2, "bias_stop_v": 0.2, "bias_step_v": 0.1, "traces": 2, "passes": 2,
-            "settle_s": 0, "sweep_time_s": 0.01}
+            "settle_s": 0, "sweep_time_s": 0.01, "rbw_hz": 3e6, "vbw_hz": 1e3}
+# (fast; the sim SA's noise mean is only exact with VBW << RBW)
 CHAIN_W = 1.15e-15 * 3e6        # sim noise at 0 V in RBW 3 MHz
 
 
@@ -431,7 +435,8 @@ def yf_record(cfg):
 def test_yf_default_plan(client):
     d = client.get(YF_URL).json()
     assert d["turns_on"].startswith("the noise source bias")
-    assert set(d["instruments"]) == {"spa", "noise_source_bias", "warm_switches", "rf_synth", "qubit_flux_bias"}
+    assert set(d["instruments"]) == {"spa", "noise_source_bias", "warm_switches", "rf_probe", "rf_synth",
+                                     "qubit_flux_bias"}
     r = yf_plan(client)
     assert r["errors"] == [], r["errors"]
     biases = [p["bias_v"] for p in r["points"]]
@@ -456,7 +461,7 @@ def test_yf_passes_go_back_and_forth(client):
     ({"traces": 0}, "traces per point"),
     ({"passes": 0}, "passes must be"),
     ({"rbw_hz": 0}, "RBW and VBW"),
-    ({"sweep_time_s": 0}, "zero span has no auto sweep time"),
+    ({"sweep_time_s": 0}, "sweep time must be > 0"),
     ({"flux_mode": "set", "flux_bias_v": 2}, "flux bias outside the limit [-1, 1] V: 2"),
     ({"ref_level_unit": "w", "ref_level_w": -20}, "reference level in W must be > 0"),
 ])
@@ -471,7 +476,7 @@ def test_yf_plan_checks_sources(client):
     r = yf_plan(client)
     assert r["errors"] == [] and any("output is on at 0.1 V" in n for n in r["notes"])
     # the probe is turned off by the sweep; the VNA matters only if the switches stay on it
-    client.post("/api/rf_synth", json={"probe_enable": True})
+    client.post("/api/rf_probe", json={"probe_enable": True})
     assert any("probe is on" in n and "back on after" in n for n in yf_plan(client)["notes"])
     client.post("/api/warm_switches", json={"fridge_in": "vna"})
     client.post("/api/vna", json={"output": True})
@@ -486,7 +491,7 @@ def test_yf_plan_checks_sources(client):
     assert any("LIN scale" in w for w in yf_plan(client, scale="LIN")["warnings"])
     # plan changes nothing
     assert client.get("/api/noise_source_bias/state").json()["offset_v"] == 0.1
-    assert client.get("/api/rf_synth/state").json()["probe_enable"] is True
+    assert client.get("/api/rf_probe/state").json()["probe_enable"] is True
 
 
 def test_yf_run_saves_power_vs_bias_and_restores(client, cfg):
@@ -495,7 +500,7 @@ def test_yf_run_saves_power_vs_bias_and_restores(client, cfg):
                                   "scale": "LIN"})
     client.post("/api/warm_switches", json={"fridge_in": "vna", "receiver": "vna", "rx_source": "fridge"})
     # a probe tone at the measurement frequency: it must be off during the sweep
-    client.post("/api/rf_synth", json={"probe_enable": True, "probe_frequency_hz": 5.58e9, "probe_power_dbm": -20})
+    client.post("/api/rf_probe", json={"probe_enable": True, "probe_frequency_hz": 5.58e9, "probe_power_dbm": -20})
     job = yf_run(client, YF_SMALL)
     assert job["status"] == "done", job
     assert job["points_done"] == job["points_total"] == 10 and job["traces_done"] == 20
@@ -519,7 +524,7 @@ def test_yf_run_saves_power_vs_bias_and_restores(client, cfg):
     assert p[0] / p[2] == pytest.approx(1.35, rel=0.05) and p[4] / p[0] == pytest.approx(1, rel=0.05)
     assert p[2] == pytest.approx(CHAIN_W, rel=0.05)
     assert rec["instruments"]["noise_source_bias"]["function"] == "SIN"
-    assert rec["finish"] == ["noise source restored", "SA restored", "switches restored", "SynthHD probe back on"]
+    assert rec["finish"] == ["noise source restored", "SA restored", "switches restored", "probe back on"]
 
     ns = client.get("/api/noise_source_bias/state").json()
     assert ns["output"] is False and ns["function"] == "SIN" and ns["offset_v"] == 0.05
@@ -529,7 +534,7 @@ def test_yf_run_saves_power_vs_bias_and_restores(client, cfg):
     assert sa["continuous"] is True and sa["sweep_time_auto"] is True   # auto again once the span is back
     sw = client.get("/api/warm_switches/state").json()
     assert sw["receiver"] == "vna" and sw["fridge_in"] == "vna"
-    assert client.get("/api/rf_synth/state").json()["probe_enable"] is True
+    assert client.get("/api/rf_probe/state").json()["probe_enable"] is True
 
 
 def test_yf_flux_set_and_restore(client, cfg):
@@ -571,7 +576,7 @@ def test_yf_stop_keeps_partial_data(client, cfg, world):
         assert time.monotonic() - t0 < 20
         time.sleep(0.02)
     for name, body in (("noise_source_bias", {"offset_v": 0}), ("qubit_flux_bias", {"level": 0}),
-                       ("rf_synth", {"probe_enable": True})):
+                       ("rf_probe", {"probe_enable": True}), ("rf_synth", {"pump_enable": True})):
         assert client.post(f"/api/{name}", json=body).status_code == 409     # reserved
     client.post(f"/api/jobs/{job['id']}/stop")
     assert wait_job(client)["status"] == "stopped"
@@ -580,42 +585,45 @@ def test_yf_stop_keeps_partial_data(client, cfg, world):
     assert client.get("/api/noise_source_bias/state").json()["output"] is False
 
 
-def test_yf_default_sweep_time_from_rbw_vbw(client, cfg):
-    from labserver.experiments.y_factor import default_sweep_time
-    assert default_sweep_time(3e6, 1e3) == 0.13          # 400 / (pi 1 kHz) = 0.127 s
-    assert default_sweep_time(1e3, 3e6) == 0.13          # the narrower filter sets it
-    assert default_sweep_time(3e6, 3e6) == 0.01          # floor
-    r = yf_plan(client)                                   # empty field: RBW 3 MHz, VBW 1 kHz
-    assert r["derived"] == {"sweep_time_s": 0.13}
-    assert any("sweep time 0.13 s per trace, from RBW" in n for n in r["notes"])
-    r = yf_plan(client, vbw_hz=10)
-    assert r["derived"]["sweep_time_s"] == 13 and any("each trace takes 13 s" in w for w in r["warnings"])
-    assert yf_plan(client, sweep_time_s=0.5)["derived"] == {}            # typed: used as is
+def test_yf_average_detector_and_sweep_time(client, cfg):
+    r = yf_plan(client)                                   # empty field: 1 s
+    assert r["derived"] == {"sweep_time_s": 1.0}
+    assert any("sweep time 1 s per trace (the default)" in n for n in r["notes"])
+    assert not any("RBW" in w or "VBW" in w or "sweep" in w for w in r["warnings"]), r["warnings"]
+    assert yf_plan(client, sweep_time_s=2)["derived"] == {}                  # typed: used as is
+    assert "detector" not in {p["key"] for p in client.get(YF_URL).json()["params"]}
+    # RBW 1 MHz reads low, a narrow VBW biases it, a short sweep barely averages
+    w = yf_plan(client, rbw_hz=1e6, vbw_hz=1e3, sweep_time_s=0.01)["warnings"]
+    assert any("use RBW <= 100 kHz" in x for x in w)
+    assert any("VBW filter averages in the vertical scale" in x for x in w)
+    assert any("each point averages only ~1 samples" in x for x in w)
+    assert not any("correction" in x for x in w)
+
+    client.post("/api/spa", json={"detector": "POS", "average_type": "LOG"})
     job = yf_run(client, {**YF_SMALL, "sweep_time_s": None, "passes": 1, "traces": 1})
     assert job["status"] == "done", job
-    assert yf_record(cfg)["spa_setup"]["sweep_time_s"] == 0.13
+    rec = yf_record(cfg)
+    assert rec["detector"] == "AVER" and rec["average_type"] == "POW"
+    assert rec["spa_setup"]["detector"] == "AVER" and rec["spa_setup"]["sweep_time_s"] == 1.0
+    sa = client.get("/api/spa/state").json()
+    assert sa["detector"] == "POS"                                           # restored
+    assert sa["average_type"] == "POW"                                       # stays POW
 
 
 def test_yf_uses_the_rbw_vbw_the_sa_took(client, cfg):
-    """The ESA snaps RBW/VBW to 1-3-10 steps (the sim too): 2 MHz -> 3 MHz, 2 kHz -> 3 kHz.
-    The default sweep time comes from the values it took, not from the typed ones."""
-    r = yf_plan(client, rbw_hz=2e6, vbw_hz=2e3)
-    assert r["derived"]["sweep_time_s"] == 0.064                  # estimate from the typed values
-    job = yf_run(client, {**YF_SMALL, "rbw_hz": 2e6, "vbw_hz": 2e3, "sweep_time_s": None,
-                          "passes": 1, "traces": 1})
+    """The ESA snaps RBW/VBW to 1-3-10 steps (the sim too): 20 kHz -> 30 kHz, 2 MHz -> 3 MHz."""
+    job = yf_run(client, {**YF_SMALL, "rbw_hz": 2e4, "vbw_hz": 2e6, "passes": 1, "traces": 1})
     assert job["status"] == "done", job
-    assert any("the SA took RBW 3000 kHz (asked for 2000 kHz)" in n for n in job["notes"])
-    assert any("the SA took VBW 3 kHz (asked for 2 kHz)" in n for n in job["notes"])
+    assert any("the SA took RBW 30 kHz (asked for 20 kHz)" in n for n in job["notes"])
+    assert any("the SA took VBW 3000 kHz (asked for 2000 kHz)" in n for n in job["notes"])
     rec = yf_record(cfg)
-    assert rec["rbw_hz"] == 3e6 and rec["vbw_hz"] == 3e3
-    assert rec["sweep_time_s"] == 0.042                           # 400 / (pi 3 kHz)
-    assert rec["params"]["rbw_hz"] == 2e6                         # what was typed stays in params
+    assert rec["rbw_hz"] == 3e4 and rec["vbw_hz"] == 3e6 and rec["sweep_time_s"] == 0.01
+    assert rec["params"]["rbw_hz"] == 2e4                         # what was typed stays in params
     # only what the run used: the reference level in dBm (the default), no pump settings (pump left as it is)
     assert rec["params"]["ref_level_dbm"] == -45 and "ref_level_w" not in rec["params"]
     assert not {"pump_frequency_hz", "pump_power_dbm", "pump_settle_s", "flux_bias_v"} & set(rec["params"])
     full = client.get(f"/api/jobs/{job['id']}?since=0").json()
-    assert "RBW 3000 kHz, VBW 3 kHz, sweep 0.042 s" in full["axis"]["title"]
-
+    assert "RBW 30 kHz, VBW 3000 kHz, sweep 0.01 s" in full["axis"]["title"]
 
 
 @pytest.mark.parametrize("params,needle", [
@@ -649,8 +657,9 @@ def test_yf_pump_set_and_restore(client, cfg):
     rec = yf_record(cfg)
     assert rec["pump_state"] == {"pump_enable": True, "pump_frequency_hz": 8.5e9, "pump_power_dbm": -1,
                                  "pump_locked": True}
-    # sim TWPA: 3 dB/dB above -3 dBm, so -1 dBm gives 6 dB on the chain noise at 0 V
-    assert rec["power_w"][2] == pytest.approx(CHAIN_W * 10 ** 0.6, rel=0.05)
+    # sim TWPA: 3 dB/dB above -3 dBm, so -1 dBm gives 6 dB on the 10 % of the chain noise
+    # that is there at its input (0 V)
+    assert rec["power_w"][2] == pytest.approx(CHAIN_W * (0.1 * 10 ** 0.6 + 0.9), rel=0.05)
     assert "TWPA pump restored" in rec["finish"]
     s = client.get("/api/rf_synth/state").json()
     assert (s["pump_enable"], s["pump_frequency_hz"], s["pump_power_dbm"]) == (False, 6e9, -30)
@@ -672,3 +681,623 @@ def test_yf_pump_off_and_finish(client, cfg, world):
                           "pump_frequency_hz": 8.5e9, "pump_power_dbm": -1, "pump_settle_s": 0})
     assert job["status"] == "done", job
     assert not world.sources["rf_pump"]["on"]
+
+
+# ---------------------------------------------------------------- TWPA pump sweep
+TP_URL = "/api/experiments/twpa_pump_sweep"
+# one pump frequency, three pump powers; ref level high so the sim tone never "clips"
+TP_SMALL = {"pump_freq_start_hz": 8.5e9, "pump_freq_stop_hz": 8.5e9, "pump_power_start_dbm": -3,
+            "pump_power_stop_dbm": -1, "pump_power_step_db": 1, "traces": 16, "vbw_hz": 100, "settle_s": 0,
+            "pump_settle_s": 0, "ref_level_dbm": 0}
+
+
+def tp_plan(client, **params):
+    r = client.post(f"{TP_URL}/plan", json=params)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def tp_run(client, params):
+    r = client.post(f"{TP_URL}/start", json=params)
+    assert r.status_code == 200, r.text
+    return wait_job(client)
+
+
+def tp_record(cfg):
+    return json.loads(next(Path(cfg["data_dir"]).rglob("*twpa-pump-sweep.json")).read_text())
+
+
+def test_tp_analyze():
+    from labserver.experiments.twpa_pump_sweep import analyze, sa_freqs
+    f = sa_freqs(6e9, 5e6)                          # 12.5 kHz bins, bin 200 at 6 GHz
+    p = np.full(f.shape, 1e-11)
+    p[200] += 1e-9
+    p[:10] = 3e-11                                  # outside the noise region (outer 2.3 MHz)
+    a = analyze(f, p, 6e9, 6e9, 1e6, 2.3e6, 30e3)
+    assert a["n_noise"] == 2 * (184 - 80 + 1)       # 80..184 bins from the center, both sides
+    assert a["noise_w"] == pytest.approx(1e-11)
+    assert a["peak_w"] == pytest.approx(1.01e-9) and a["peak_hz"] == 6e9
+    assert a["signal_w"] == pytest.approx(1e-9)
+    # a window narrower than a bin uses the nearest bin; no tone above the noise -> None
+    assert analyze(f, np.full(f.shape, 1e-11), 6e9, 6.000004e9, 1e6, 2.5e6, 1e3)["signal_w"] is None
+
+
+def test_tp_default_plan(client):
+    d = client.get(TP_URL).json()
+    assert set(d["instruments"]) == {"spa", "rf_probe", "rf_synth", "warm_switches", "attenuator", "qubit_flux_bias"}
+    r = tp_plan(client)
+    assert r["errors"] == [], r["errors"]
+    assert len(r["points"]) == 11 * 13
+    assert r["points"][0] == {"i": 0, "pump_frequency_ghz": 8.0, "pump_power_dbm": -6.0, "traces": 1}
+    assert r["points"][13]["pump_frequency_ghz"] == 8.1           # frequency outer, power inner
+    assert r["columns"][1] == ["pump_frequency_ghz", "pump frequency", "GHz"]
+    assert any("fridge_in vna -> rf_probe" in n for n in r["notes"])
+    assert any("11 pump frequencies x 13 pump powers" in n for n in r["notes"])
+    one = tp_plan(client, **TP_SMALL)
+    assert [p["pump_power_dbm"] for p in one["points"]] == [-3, -2, -1]
+
+
+@pytest.mark.parametrize("params,needle", [
+    ({"pump_power_step_db": 0}, "pump power step must be > 0"),
+    ({"pump_power_stop_dbm": 15}, "pump power outside the limit [-80, 10] dBm"),
+    ({"traces": 0}, "traces per point"),
+    ({"span_hz": 0}, "span must be > 0"),
+    ({"noise_inner_hz": 3e6}, "'noise from' must be >= 0 and below 'noise to'"),
+    ({"noise_outer_hz": 3e6}, "beyond the edge of the span"),
+    ({"noise_inner_hz": 2.4e6}, "bins on one side"),
+    ({"probe_frequency_hz": 6.01e9}, "outside the SA span"),
+    ({"probe_frequency_hz": 6.0015e9}, "falls in the noise region"),
+    ({"att_mode": "set", "attenuation_db": 10.1}, "multiple of 0.25 dB"),
+    ({"flux_mode": "set", "flux_bias_v": 2}, "flux bias outside the limit"),
+])
+def test_tp_plan_errors(client, params, needle):
+    errors = tp_plan(client, **params)["errors"]
+    assert any(needle in e for e in errors), errors
+
+
+def test_tp_plan_warnings(client):
+    assert any("within 3 RBW" in w for w in tp_plan(client, probe_frequency_hz=6.00095e9, signal_window_hz=10e3,
+                                                   noise_inner_hz=1e6)["warnings"])
+    assert any("narrower than the bin spacing" in w for w in tp_plan(client, signal_window_hz=1e3)["warnings"])
+
+
+def test_tp_run_gain_snri_and_restore(client, cfg, world):
+    client.post("/api/rf_synth", json={"pump_frequency_hz": 6e9, "pump_power_dbm": -30, "pump_enable": False})
+    client.post("/api/rf_probe", json={"probe_frequency_hz": 5e9, "probe_power_dbm": -40, "probe_enable": False})
+    sa0 = client.get("/api/spa/state").json()
+    job = tp_run(client, TP_SMALL)
+    assert job["status"] == "done", job
+    rec = tp_record(cfg)
+    assert rec["pump_power_dbm"] == [-3, -2, -1] and rec["pump_frequency_hz"] == [8.5e9] * 3
+    assert len(rec["traces_w"]) == 3 and len(rec["frequency_hz"]) == 401
+    ref = rec["reference"]
+    assert ref["peak_hz"] == 6e9 and ref["snr_db"] > 15
+    # sim TWPA: 0 dB at -3 dBm, 6 dB at -1 dBm; 10 % of the chain noise is before it
+    assert rec["gain_db"][0] == pytest.approx(0, abs=0.3)
+    assert rec["gain_db"][2] == pytest.approx(6, abs=0.3)
+    rise = 10 * np.log10(0.1 * 10 ** 0.6 + 0.9)
+    assert rec["noise_rise_db"][2] == pytest.approx(rise, abs=0.2)
+    assert rec["snri_db"][2] == pytest.approx(6 - rise, abs=0.4)
+    assert rec["snri_db"][2] == pytest.approx(rec["gain_db"][2] - rec["noise_rise_db"][2], abs=1e-3)
+    assert rec["spa_setup"]["span_hz"] == 5e6 and rec["spa_setup"]["detector"] == "SAMP"
+    assert set(rec["finish"]) >= {"TWPA pump restored", "probe restored", "SA restored", "switches restored"}
+    rows = client.get(f"/api/jobs/{job['id']}?since=0").json()
+    assert rows["axis"]["plot"] == "grid" and len(rows["axis"]["ref"]["trace_dbm"]) == 401
+    assert rows["rows"][2]["gain_db"] == rec["gain_db"][2] and len(rows["rows"][2]["trace_dbm"]) == 401
+    s = client.get("/api/rf_synth/state").json()
+    assert (s["pump_enable"], s["pump_frequency_hz"], s["pump_power_dbm"]) == (False, 6e9, -30)
+    s = client.get("/api/rf_probe/state").json()
+    assert (s["probe_enable"], s["probe_frequency_hz"], s["probe_power_dbm"]) == (False, 5e9, -40)
+    sa = client.get("/api/spa/state").json()
+    assert (sa["span_hz"], sa["center_hz"], sa["unit"]) == (sa0["span_hz"], sa0["center_hz"], sa0["unit"])
+    assert client.get("/api/warm_switches/state").json()["fridge_in"] == "vna"
+
+
+def test_tp_signal_center_plan(client):
+    # around the SA frequency: the probe is checked against the window there
+    w = tp_plan(client, signal_center="sa", probe_frequency_hz=6.0003e9, signal_window_hz=100e3)["warnings"]
+    assert any("300 kHz from the SA frequency, outside the signal window (+-100 kHz)" in x for x in w), w
+    assert not any("from the SA frequency" in x for x in tp_plan(client, signal_center="sa", signal_window_hz=100e3,
+                                                                 probe_frequency_hz=6.00005e9)["warnings"])
+    # the window and the probe tone must both stay out of the noise region
+    assert any("signal window falls in the noise region" in e
+               for e in tp_plan(client, probe_frequency_hz=6.0015e9)["errors"])
+    assert any("probe tone (+- signal window) falls in the noise region" in e
+               for e in tp_plan(client, signal_center="sa", probe_frequency_hz=6.0015e9)["errors"])
+
+
+def test_tp_signal_center_sa_finds_an_offset_tone(client, cfg):
+    # the tone 50 kHz off the SA frequency (as with unlocked clocks): a window around the SA finds it
+    job = tp_run(client, {**TP_SMALL, "traces": 2, "probe_frequency_hz": 6.00005e9, "signal_center": "sa",
+                          "signal_window_hz": 100e3})
+    assert job["status"] == "done", job
+    rec = tp_record(cfg)
+    assert rec["signal_center_hz"] == 6e9 and rec["params"]["signal_center"] == "sa"
+    assert rec["reference"]["peak_hz"] == 6.00005e9 and rec["reference"]["snr_db"] > 15
+    ax = client.get(f"/api/jobs/{job['id']}?since=0").json()["axis"]
+    assert ax["f_signal"] == 6e9 and ax["f_probe"] == 6.00005e9 and "around the SA" in ax["title"]
+
+
+def test_tp_finish_off(client, cfg, world):
+    job = tp_run(client, {**TP_SMALL, "traces": 1, "finish": "off", "save_traces": False})
+    assert job["status"] == "done", job
+    assert not world.sources["rf_pump"]["on"] and not world.sources["rf_probe"]["on"]
+    rec = tp_record(cfg)
+    assert "traces_w" not in rec and rec["finish"] == ["TWPA pump and probe off"]
+    assert "2.5 dB low" in rec["analysis_note"]
+
+
+# ---------------------------------------------------------------- TWPA signal sweep
+TS_URL = "/api/experiments/twpa_signal_sweep"
+# sim TWPA at pump 8.5 GHz, 7 dBm: 20 dB gain; 10 % of the chain noise is before it. Three
+# signal frequencies, the hot wire at 0 and 0.2 V; ref level high so the sim tone never "clips"
+TS_SMALL = {"signal_freq_start_hz": 5.9e9, "signal_freq_stop_hz": 6.1e9, "signal_freq_step_hz": 100e6,
+            "noise_mode": "sweep", "noise_bias_start_v": 0.0, "noise_bias_stop_v": 0.2, "noise_bias_step_v": 0.2,
+            "traces": 8, "vbw_hz": 100, "settle_s": 0, "pump_settle_s": 0, "noise_settle_s": 0, "ref_level_dbm": 0}
+
+
+def ts_plan(client, **params):
+    r = client.post(f"{TS_URL}/plan", json=params)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def ts_run(client, params):
+    r = client.post(f"{TS_URL}/start", json=params)
+    assert r.status_code == 200, r.text
+    return wait_job(client)
+
+
+def ts_record(cfg, label="twpa-signal-sweep"):
+    return json.loads(next(Path(cfg["data_dir"]).rglob(f"*-{label}.json")).read_text())
+
+
+def test_ts_default_plan(client):
+    d = client.get(TS_URL).json()
+    assert set(d["instruments"]) == {"spa", "rf_probe", "rf_synth", "warm_switches", "attenuator", "noise_source_bias",
+                                     "qubit_flux_bias"}
+    r = ts_plan(client)
+    assert r["errors"] == [], r["errors"]
+    assert len(r["points"]) == 11                   # 5.5..6.5 GHz, noise source left as it is
+    assert r["points"][0] == {"i": 0, "signal_frequency_ghz": 5.5, "signal_power_dbm": -20.0, "traces": 1}
+    assert [c[0] for c in r["columns"]] == ["i", "signal_frequency_ghz", "signal_power_dbm", "traces"]
+    assert any("11 signal frequencies (5.5 -> 6.5 GHz) at -20 dBm = 11 points, pump off then on: 22 spectra" in n
+               for n in r["notes"]), r["notes"]
+    assert any("noise source left as it is: output off" in n for n in r["notes"])
+    assert any("TWPA pump is off: on at 8.5 GHz, 7 dBm, off for each pump-off pass" in n for n in r["notes"])
+    # noise source bias outer, signal inner
+    r = ts_plan(client, **TS_SMALL)
+    assert r["errors"] == [], r["errors"]
+    assert [(p["noise_bias_v"], p["signal_frequency_ghz"]) for p in r["points"]] == \
+        [(0, 5.9), (0, 6.0), (0, 6.1), (0.2, 5.9), (0.2, 6.0), (0.2, 6.1)]
+    assert any("set to DC 0 V, then turned on" in n for n in r["notes"])
+    # power axis, no reference
+    r = ts_plan(client, signal_axis="power", signal_power_start_dbm=-30, signal_power_stop_dbm=-20,
+                signal_power_step_db=5, reference="none")
+    assert [p["signal_power_dbm"] for p in r["points"]] == [-30, -25, -20]
+    assert {p["signal_frequency_ghz"] for p in r["points"]} == {6.0}
+    assert any("pump on only: 3 spectra" in n for n in r["notes"])
+
+
+@pytest.mark.parametrize("params,needle", [
+    ({"signal_freq_step_hz": 0}, "signal frequency step must be > 0"),
+    ({"signal_power_dbm": 5}, "signal power outside the limit [-145, 0] dBm"),
+    ({"signal_axis": "power", "signal_power_step_db": -1}, "signal power step must be > 0"),
+    ({"pump_power_dbm": 15}, "pump power outside the limit [-80, 10] dBm"),
+    ({"noise_mode": "sweep", "noise_bias_stop_v": 0.5}, "noise source bias outside the limit [-0.2, 0.2] V"),
+    ({"traces": 0}, "traces per point"),
+    ({"span_hz": 0}, "span must be > 0"),
+    ({"noise_inner_hz": 3e6}, "'noise from' must be >= 0 and below 'noise to'"),
+    ({"noise_inner_hz": 2.4e6}, "bins on one side"),
+    ({"signal_window_hz": 1.2e6}, "signal window reaches into the noise region"),
+    ({"att_mode": "set", "attenuation_db": 10.1}, "multiple of 0.25 dB"),
+    ({"flux_mode": "set", "flux_bias_v": 2}, "flux bias outside the limit"),
+])
+def test_ts_plan_errors(client, params, needle):
+    errors = ts_plan(client, **params)["errors"]
+    assert any(needle in e for e in errors), errors
+
+
+def test_ts_plan_warnings_and_noise_source_checks(client):
+    w = ts_plan(client, signal_freq_start_hz=8.0e9, signal_freq_stop_hz=8.5e9)["warnings"]
+    assert any("the pump (8.5 GHz) is inside the SA span at signal 8.5 GHz" in x for x in w), w
+    assert any("ppm of the signal frequency" in x for x in ts_plan(client, sa_offset_hz=500e3)["warnings"])
+    # an output already on must be in DC to be swept; left as it is, it is only a warning
+    client.post("/api/noise_source_bias", json={"function": "SIN", "output": True})
+    assert any("output is on in SIN mode" in e for e in ts_plan(client, **TS_SMALL)["errors"])
+    assert any("on in SIN mode, not a DC bias" in x for x in ts_plan(client)["warnings"])
+
+
+def test_ts_run_snr_vs_noise_and_restore(client, cfg, world):
+    client.post("/api/rf_synth", json={"pump_frequency_hz": 6e9, "pump_power_dbm": -30, "pump_enable": False})
+    client.post("/api/rf_probe", json={"probe_frequency_hz": 5e9, "probe_power_dbm": -40, "probe_enable": False})
+    sa0 = client.get("/api/spa/state").json()
+    job = ts_run(client, TS_SMALL)
+    assert job["status"] == "done", job
+    rec = ts_record(cfg)
+    assert rec["noise_bias_v"] == [0, 0, 0, 0.2, 0.2, 0.2]
+    assert rec["signal_frequency_hz"] == [5.9e9, 6e9, 6.1e9] * 2 and rec["sa_center_hz"] == rec["signal_frequency_hz"]
+    assert rec["pump_frequency_hz"] == 8.5e9 and rec["pump_power_dbm"] == 7
+    assert np.array(rec["traces_w"]).shape == np.array(rec["ref_traces_w"]).shape == (6, 401)
+    assert rec["peak_hz"] == rec["signal_frequency_hz"] and rec["ref_peak_hz"] == rec["signal_frequency_hz"]
+    # sim: 20 dB gain; noise rise 10 log10(0.1 * 100 + 0.9) with the hot wire cold
+    rise0 = 10 * np.log10(10.9)
+    for i in range(3):
+        assert rec["gain_db"][i] == pytest.approx(20, abs=0.3)
+        assert rec["noise_rise_db"][i] == pytest.approx(rise0, abs=0.3)
+        assert rec["snri_db"][i] == pytest.approx(20 - rise0, abs=0.4)
+        assert rec["snri_db"][i] == pytest.approx(rec["snr_db"][i] - rec["ref_snr_db"][i], abs=1e-3)
+    # the hot wire at 0.2 V (4e-16 W/Hz before the TWPA) lowers the SNR, pump on and off
+    on = 10 * np.log10((1.15e-15 * 10.9 + 4e-14) / (1.15e-15 * 10.9))
+    off = 10 * np.log10((1.15e-15 + 4e-16) / 1.15e-15)
+    for i in range(3):
+        assert rec["snr_db"][i] - rec["snr_db"][i + 3] == pytest.approx(on, abs=0.4)
+        assert rec["ref_snr_db"][i] - rec["ref_snr_db"][i + 3] == pytest.approx(off, abs=0.4)
+    assert rec["noise_source_state"]["output"] and rec["noise_source_state"]["function"] == "DC"
+    assert rec["synth_state"]["pump_enable"] and rec["spa_setup"]["detector"] == "SAMP"
+    assert set(rec["finish"]) >= {"noise source restored", "TWPA pump restored", "probe restored",
+                                  "SA restored", "switches restored"}
+    # the plot: signal frequency x noise source bias, each row with its own pump-off spectrum
+    view = client.get(f"/api/jobs/{job['id']}?since=0").json()
+    ax, rows = view["axis"], view["rows"]
+    assert (ax["plot"], ax["x_key"], ax["y_key"], ax["quantities"][0]) == ("grid", "signal_frequency_hz",
+                                                                           "noise_bias_v", "snr_db")
+    assert ax["per_point_ref"] and "ref" not in ax and len(ax["f"]) == 401
+    assert rows[4]["snr_db"] == rec["snr_db"][4] and rows[4]["sa_center_hz"] == 6e9
+    assert len(rows[4]["trace_dbm"]) == len(rows[4]["ref_trace_dbm"]) == 401
+    # everything back as it was
+    s = client.get("/api/rf_synth/state").json()
+    assert (s["pump_enable"], s["pump_frequency_hz"], s["pump_power_dbm"]) == (False, 6e9, -30)
+    s = client.get("/api/rf_probe/state").json()
+    assert (s["probe_enable"], s["probe_frequency_hz"], s["probe_power_dbm"]) == (False, 5e9, -40)
+    ns = client.get("/api/noise_source_bias/state").json()
+    assert not ns["output"] and world.noise_source_v == 0
+    sa = client.get("/api/spa/state").json()
+    assert (sa["span_hz"], sa["center_hz"], sa["unit"]) == (sa0["span_hz"], sa0["center_hz"], sa0["unit"])
+    assert client.get("/api/warm_switches/state").json()["fridge_in"] == "vna"
+
+
+def test_ts_power_axis_without_reference_and_finish_off(client, cfg, world):
+    # noise source left on at 0.1 V: kept, and recorded as the bias of every point
+    client.post("/api/noise_source_bias", json={"function": "DC", "offset_v": 0.1})
+    client.post("/api/noise_source_bias", json={"output": True})
+    job = ts_run(client, {**TS_SMALL, "noise_mode": "keep", "signal_axis": "power", "signal_frequency_hz": 6e9,
+                          "signal_power_start_dbm": -30, "signal_power_stop_dbm": -20, "signal_power_step_db": 10,
+                          "reference": "none", "save_traces": False, "finish": "off", "traces": 64})
+    assert job["status"] == "done", job
+    rec = ts_record(cfg)
+    assert rec["signal_power_dbm"] == [-30, -20] and rec["noise_bias_v"] == [0.1, 0.1]
+    assert "gain_db" not in rec and "ref_snr_db" not in rec and "traces_w" not in rec
+    # the tone 10 dB up, the noise the same
+    assert 10 * np.log10(rec["signal_w"][1] / rec["signal_w"][0]) == pytest.approx(10, abs=0.2)
+    assert rec["noise_w"][1] == pytest.approx(rec["noise_w"][0], rel=0.15)
+    assert rec["snr_db"][1] - rec["snr_db"][0] == pytest.approx(10, abs=0.3)
+    assert rec["finish"] == ["TWPA pump and signal off"]
+    assert not world.sources["rf_pump"]["on"] and not world.sources["rf_probe"]["on"]
+    assert world.noise_source_v == 0.1                  # left as it was
+    view = client.get(f"/api/jobs/{job['id']}?since=0").json()
+    assert view["axis"]["x_key"] == "signal_power_dbm"
+    assert view["axis"]["quantities"] == ["snr_db", "signal_dbm", "noise_dbm"]
+    assert "gain_db" not in view["rows"][0] and "trace_dbm" not in view["rows"][0]
+
+
+def test_ts_finish_off_turns_a_swept_noise_source_off(client, cfg):
+    job = ts_run(client, {**TS_SMALL, "traces": 1, "signal_freq_stop_hz": 5.9e9, "finish": "off"})
+    assert job["status"] == "done", job
+    rec = ts_record(cfg)
+    assert rec["finish"] == ["TWPA pump and signal off", "noise source at 0 V, off"]
+    assert not client.get("/api/noise_source_bias/state").json()["output"]
+
+
+def test_ts_stop_keeps_partial_data(client, cfg, world):
+    world.time_scale = 1.0
+    job = client.post(f"{TS_URL}/start", json={**TS_SMALL, "traces": 20, "vbw_hz": 1000}).json()
+    t0 = time.monotonic()
+    while client.get(f"/api/jobs/{job['id']}").json()["n_rows"] < 1:
+        assert time.monotonic() - t0 < 30
+        time.sleep(0.02)
+    client.post(f"/api/jobs/{job['id']}/stop")
+    assert wait_job(client, timeout=30)["status"] == "stopped"
+    rec = ts_record(cfg)
+    n = len(rec["snr_db"])
+    assert rec["status"] == "stopped" and 1 <= n < 6
+    assert all(len(rec[k]) == n for k in ("ref_snr_db", "gain_db", "noise_bias_v", "traces_w", "ref_traces_w"))
+
+
+# ---------------------------------------------------------------- qubit power sweep on the SA
+QS_URL = "/api/experiments/qubit_power_sweep_sa"
+# sim qubit at 5.58 GHz (1 MHz wide), saturating at about -36.5 dBm at the fridge input; with the
+# attenuator at 0 dB: -40 dBm probe shows a ~4.7 dB dip, -10 dBm none. VBW 1 Hz keeps the sim
+# noise smooth; the tone (-73.6 dBm off resonance) is ~16 dB above the noise at RBW 1 kHz.
+QS_SMALL = {"segments": [seg(-40, -10, 30, 2)], "att_mode": "set", "attenuation_db": 0,
+            "freq_start_hz": 5.575e9, "freq_stop_hz": 5.585e9, "freq_step_hz": 1e6, "vbw_hz": 1,
+            "settle_s": 0, "ref_level_dbm": 0}
+QS_ATT = {**QS_SMALL, "power_control": "attenuator", "synth_power_dbm": 0, "att_segments": [att_seg(40, 10, 30, 2)]}
+
+
+def qs_plan(client, **params):
+    r = client.post(f"{QS_URL}/plan", json=params)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def qs_run(client, params):
+    r = client.post(f"{QS_URL}/start", json=params)
+    assert r.status_code == 200, r.text
+    return wait_job(client)
+
+
+def qs_record(cfg):
+    return json.loads(max(Path(cfg["data_dir"]).rglob("*qubit-power-sweep-sa.json")).read_text())
+
+
+def test_qs_default_plan(client):
+    d = client.get(QS_URL).json()
+    assert set(d["instruments"]) == {"spa", "rf_probe", "rf_synth", "warm_switches", "attenuator", "qubit_flux_bias"}
+    client.post("/api/attenuator", json={"attenuation_db": 25})
+    r = qs_plan(client)
+    assert r["errors"] == [], r["errors"]
+    assert len(r["points"]) == 11 + 20 + 10                     # power lines, low first
+    assert r["points"][0] == {"i": 0, "probe_power_dbm": -60.0, "drive_dbm": -85.0, "averages": 4}
+    assert r["columns"][1] == ["probe_power_dbm", "SMW200A probe power", "dBm"]
+    assert any("41 powers x 51 probe frequencies" in n for n in r["notes"])
+    assert any("drive after the attenuator -85 -> -25 dBm" in n for n in r["notes"])
+    assert any("fridge_in vna -> rf_probe" in n for n in r["notes"])
+    assert r["estimate_s"] > 0
+    a = qs_plan(client, power_control="attenuator")
+    assert a["errors"] == [] and a["points"][0]["attenuation_db"] == 63 and a["points"][0]["drive_dbm"] == -73
+    assert any("at 25 dB now; set to 63 dB before the probe is turned on" in n for n in a["notes"])
+    q = qs_plan(client, line_atten_db=77.4)
+    assert any("dBm at the qubit" in n for n in q["notes"])
+    # the plan changes nothing
+    assert client.get("/api/attenuator/state").json()["attenuation_db"] == 25
+    assert client.get("/api/warm_switches/state").json()["fridge_in"] == "vna"
+
+
+@pytest.mark.parametrize("params,needle", [
+    ({"freq_step_hz": 0}, "probe frequency step must be > 0"),
+    ({"freq_step_hz": 1e3}, "more than 2000 probe frequencies"),
+    ({"segments": [seg(-10, 10, 5, 1)]}, "probe power outside the limit"),
+    ({"segments": []}, "at least one segment"),
+    ({"span_hz": 0}, "span must be > 0"),
+    ({"signal_window_hz": 40e3}, "tone window reaches into the noise region"),
+    ({"noise_inner_hz": 49e3}, "bins on one side"),
+    ({"noise_outer_hz": 60e3}, "beyond the edge of the span"),
+    ({"att_mode": "set", "attenuation_db": 10.1}, "multiple of 0.25 dB"),
+    ({"power_control": "attenuator", "att_segments": [att_seg(40, 39, 0.1, 1)]}, "multiple of 0.25 dB"),
+    ({"power_control": "attenuator", "att_segments": [att_seg(70, 60, 5, 1)]}, "attenuation outside the limit"),
+    ({"flux_mode": "set", "flux_bias_v": 2}, "flux bias outside the limit"),
+    ({"rbw_hz": 0}, "RBW and VBW must be > 0"),
+])
+def test_qs_plan_errors(client, params, needle):
+    errors = qs_plan(client, **params)["errors"]
+    assert any(needle in e for e in errors), errors
+
+
+def test_qs_plan_warnings(client):
+    assert any("within 3 RBW" in w for w in qs_plan(client, noise_inner_hz=16e3)["warnings"])
+    assert any("wider than the RBW" in w for w in qs_plan(client, span_hz=1e6, noise_inner_hz=100e3,
+                                                          signal_window_hz=50e3)["warnings"])
+
+
+def test_qs_run_map_shows_saturation_and_restores(client, cfg, world):
+    client.post("/api/rf_probe", json={"probe_frequency_hz": 5e9, "probe_power_dbm": -30, "probe_enable": False})
+    client.post("/api/attenuator", json={"attenuation_db": 25})
+    sa0 = client.get("/api/spa/state").json()
+    job = qs_run(client, {**QS_SMALL, "line_atten_db": 70})
+    assert job["status"] == "done", job
+    rec = qs_record(cfg)
+    assert rec["probe_power_dbm"] == [-40, -10] and rec["averages"] == [2, 2]
+    assert rec["drive_dbm"] == [-40, -10] and rec["qubit_power_dbm"] == [-110, -80]
+    assert len(rec["frequency_hz"]) == 11 and len(rec["peak_w"]) == 2 and len(rec["peak_w"][0]) == 11
+    assert len(rec["sa_bin_offset_hz"]) == 401 and rec["sa_center_offset_hz"] == 0 and "traces_w" not in rec
+    assert rec["peak_hz"][1][5] == pytest.approx(5.58e9, abs=500)
+    assert all(s is not None for line in rec["signal_w"] for s in line)
+    full = client.get(f"/api/jobs/{job['id']}?since=0").json()
+    ax, rows = full["axis"], full["rows"]
+    assert ax["y_key"] == "probe_power_dbm" and ax["no_phase"] and len(ax["x"]) == 11
+    low, high = np.array(rows[0]["s_db"]), np.array(rows[1]["s_db"])
+    # off resonance: tone - probe power = the sim chain, -103.55 + 70 dB
+    assert high[0] == pytest.approx(-33.55, abs=0.5)
+    # a dip at the qubit at low drive, gone when saturated
+    assert -6 < low[5] - low[0] < -3
+    assert abs(high[5] - high[0]) < 0.5
+    assert "2.5 dB low" in rec["analysis_note"]
+    assert rec["spa_setup"]["span_hz"] == 100e3 and rec["spa_setup"]["detector"] == "SAMP"
+    assert set(rec["finish"]) >= {"probe restored", "attenuator restored", "SA restored", "switches restored"}
+    s = client.get("/api/rf_probe/state").json()
+    assert (s["probe_enable"], s["probe_frequency_hz"], s["probe_power_dbm"]) == (False, 5e9, -30)
+    assert client.get("/api/attenuator/state").json()["attenuation_db"] == 25
+    sa = client.get("/api/spa/state").json()
+    assert (sa["span_hz"], sa["center_hz"]) == (sa0["span_hz"], sa0["center_hz"])
+    assert client.get("/api/warm_switches/state").json()["fridge_in"] == "vna"
+
+
+def test_qs_attenuator_run_and_finish(client, cfg, world):
+    client.post("/api/attenuator", json={"attenuation_db": 25})
+    job = qs_run(client, QS_ATT)
+    assert job["status"] == "done", job
+    rec = qs_record(cfg)
+    assert rec["attenuation_db"] == [40, 10] and rec["drive_dbm"] == [-40, -10]
+    assert "probe_power_dbm" not in rec
+    full = client.get(f"/api/jobs/{job['id']}?since=0").json()
+    assert full["axis"]["y_key"] == "attenuation_db"
+    # s_db is tone - probe power (includes the attenuator, like the VNA S21)
+    assert full["rows"][0]["s_db"][0] == pytest.approx(-33.55 - 40, abs=0.5)
+    assert client.get("/api/attenuator/state").json()["attenuation_db"] == 25
+
+    assert qs_run(client, {**QS_ATT, "finish": "last"})["status"] == "done"
+    assert client.get("/api/attenuator/state").json()["attenuation_db"] == 10
+    assert world.sources["rf_probe"]["on"]
+    client.post("/api/attenuator", json={"attenuation_db": 63})     # higher than any point
+    assert qs_run(client, QS_ATT)["status"] == "done"
+    assert client.get("/api/attenuator/state").json()["attenuation_db"] == 63
+
+
+def test_qs_finish_off_with_flux_and_traces(client, cfg, world):
+    job = qs_run(client, {**QS_SMALL, "finish": "off", "flux_mode": "set", "flux_bias_v": 0.1,
+                          "save_traces": True, "freq_stop_hz": 5.576e9})
+    assert job["status"] == "done", job
+    assert not world.sources["rf_probe"]["on"]
+    rec = qs_record(cfg)
+    assert rec["finish"] == ["probe off", "flux bias at 0 V, off"]
+    assert rec["flux_bias_state"]["level"] == pytest.approx(0.1)
+    assert np.array(rec["traces_w"]).shape == (2, 2, 401)
+
+
+def test_qs_sa_center_offset_follows_an_unlocked_clock(client, cfg, world):
+    # the probe 10 ppm high: the tone lands 55.8 kHz above the probe frequency at 5.58 GHz,
+    # beyond the edge of a 100 kHz span centred on the probe
+    world.synth_clock_error_ppm = 10
+    params = {**QS_SMALL, "segments": [seg(-10, -10, 1, 1)], "freq_start_hz": 5.58e9, "freq_stop_hz": 5.58e9}
+    job = qs_run(client, params)
+    assert job["status"] == "done", job
+    missed = client.get(f"/api/jobs/{job['id']}?since=0").json()["rows"][0]["s_db"][0]
+    assert missed < -33.55 - 10                     # only noise in the window
+
+    r = qs_plan(client, **{**params, "sa_offset_hz": 55.8e3})
+    assert r["errors"] == [] and any("SA center = probe frequency +55.8 kHz" in n for n in r["notes"])
+    job = qs_run(client, {**params, "sa_offset_hz": 55.8e3, "label": "offset"})
+    assert job["status"] == "done", job
+    rec = json.loads(next(Path(cfg["data_dir"]).rglob("*-offset.json")).read_text())
+    assert rec["sa_center_offset_hz"] == 55.8e3 and rec["spa_setup"]["center_hz"] == 5.58e9 + 55.8e3
+    assert rec["peak_hz"][0][0] == pytest.approx(5.58e9 * (1 + 10e-6), abs=300)
+    assert rec["signal_w"][0][0] is not None
+    s_db = client.get(f"/api/jobs/{job['id']}?since=0").json()["rows"][0]["s_db"]
+    assert s_db[0] == pytest.approx(-33.55, abs=0.5)
+    assert client.get("/api/spa/state").json()["center_hz"] != 5.58e9 + 55.8e3      # SA restored
+
+
+def test_qs_sa_center_offset_plan_checks(client):
+    assert any("ppm of the probe frequency" in w for w in qs_plan(client, sa_offset_hz=500e3)["warnings"])
+    assert not any("ppm" in w for w in qs_plan(client, sa_offset_hz=-20e3)["warnings"])
+
+
+# ---------------------------------------------------------------- TWPA noise spectrum
+TN_URL = "/api/experiments/twpa_noise_spectrum"
+TN_SMALL = {"rounds": 2, "settle_s": 0, "pump_settle_s": 0, "sweep_time_s": 0.01, "center_hz": 6e9, "span_hz": 100e6,
+            "pump_frequency_hz": 8.5e9, "pump_power_dbm": 5}
+
+
+def tn_plan(client, **params):
+    r = client.post(f"{TN_URL}/plan", json=params)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_tn_default_plan_and_order(client):
+    r = tn_plan(client)
+    assert r["errors"] == [], r["errors"]
+    assert r["warnings"] == [], r["warnings"]
+    pts = [(p["round"], p["pump"], p["hot_wire_v"]) for p in r["points"]]
+    assert pts[:8] == [(1, "off", 0), (1, "off", 0.1), (1, "on", 0.1), (1, "on", 0),      # every other round reversed
+                       (2, "on", 0), (2, "on", 0.1), (2, "off", 0.1), (2, "off", 0)]
+    assert len(pts) == 16                                           # 4 rounds by default
+    assert any("16 spectra of 10 s" in n for n in r["notes"])
+
+
+@pytest.mark.parametrize("params,needle", [
+    ({"center_hz": 8e9}, "the pump (8.05 GHz) is inside the span"),
+    ({"bias_on_v": 0.3}, "hot-wire bias outside the limit"),
+    ({"bias_on_v": 0}, "same as off"),
+    ({"rounds": 0}, "rounds and spectra per state must be >= 1"),
+    ({"span_hz": 0}, "span must be > 0"),
+])
+def test_tn_plan_errors(client, params, needle):
+    assert any(needle in e for e in tn_plan(client, **params)["errors"])
+
+
+def test_tn_plan_warnings(client):
+    w = tn_plan(client, rbw_hz=1e6, vbw_hz=1e3)["warnings"]
+    assert any("use RBW <= 100 kHz" in x for x in w) and any("VBW filter averages" in x for x in w)
+    assert any("within 50 MHz of the span" in x for x in tn_plan(client, center_hz=7.53e9)["warnings"])
+
+
+def test_tn_run_records_states_and_restores(client, cfg):
+    client.post("/api/spa", json={"detector": "POS", "span_hz": 5e6})
+    client.post("/api/rf_synth", json={"pump_enable": False, "pump_frequency_hz": 9e9, "pump_power_dbm": -10})
+    client.post("/api/noise_source_bias", json={"function": "DC", "offset_v": 0.05, "output": False})
+    r = client.post(f"{TN_URL}/start", json=TN_SMALL)
+    assert r.status_code == 200, r.text
+    job = wait_job(client)
+    assert job["status"] == "done", job
+    assert job["points_done"] == job["points_total"] == 8
+    full = client.get(f"/api/jobs/{job['id']}?since=0").json()
+    ax = full["axis"]
+    assert ax["plot"] == "spectra" and len(ax["f"]) == 401
+    assert set(ax["spectra"]) == {"pump off, hot wire 0 V", "pump off, hot wire on", "pump on, hot wire 0 V",
+                                  "pump on, hot wire on"}
+    rec = json.loads(next(Path(cfg["data_dir"]).rglob("*twpa-noise-spectrum.json")).read_text())
+    assert rec["status"] == "done" and rec["spa_setup"]["detector"] == "AVER"
+    assert rec["spa_setup"]["average_type"].startswith("POW") and rec["spa_setup"]["span_hz"] == 100e6
+    assert rec["pump"] == ["off", "off", "on", "on", "on", "on", "off", "off"]
+    assert rec["hot_wire_v"] == [0, 0.1, 0.1, 0, 0, 0.1, 0.1, 0]
+    assert np.array(rec["traces_w"]).shape == (8, 401) and len(rec["power_w"]) == 4
+    # the sim hot wire raises the noise, the sim TWPA amplifies it
+    assert np.nanmedian(np.array(rec["y_pump_off"], dtype=float)) > 1
+    assert np.nanmedian(np.array(rec["gain_db"], dtype=float)) > 3
+    assert rec["pump_state"]["pump_enable"] and rec["pump_state"]["pump_frequency_hz"] == 8.5e9
+    assert rec["finish"][0] == "noise source restored"
+    assert client.get("/api/rf_synth/state").json()["pump_enable"] is False             # restored
+    assert client.get("/api/rf_synth/state").json()["pump_frequency_hz"] == 9e9
+    ns = client.get("/api/noise_source_bias/state").json()
+    assert ns["output"] is False and ns["offset_v"] == 0.05
+    sa = client.get("/api/spa/state").json()
+    assert sa["detector"] == "POS" and sa["span_hz"] == 5e6
+    html = client.get(job["html_url"])                                  # the interactive export
+    assert html.status_code == 200 and re.search(r'"plot": ?"spectra"', html.text)
+
+
+# ---------------------------------------------------------------- TWPA VNA gain
+VG_URL = "/api/experiments/twpa_vna_gain"
+VG_SMALL = {"rounds": 2, "averages": 2, "pump_settle_s": 0, "points": 51, "pump_frequency_hz": 8.5e9,
+            "pump_power_dbm": 5}
+
+
+def vg_plan(client, **params):
+    r = client.post(f"{VG_URL}/plan", json=params)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_vg_default_plan_and_order(client):
+    r = vg_plan(client)
+    assert r["errors"] == [], r["errors"]
+    assert [(p["round"], p["pump"]) for p in r["points"]] == [(1, "off"), (1, "on"), (2, "on"), (2, "off")]
+    assert any("2 rounds x 2 pump states x 10 = 40 traces" in n for n in r["notes"])
+
+
+@pytest.mark.parametrize("params,needle", [
+    ({"stop_hz": 9e9}, "inside the VNA range"),
+    ({"att_mode": "set", "attenuation_db": 25.1}, "not a multiple of"),
+    ({"rounds": 0}, "rounds and traces per state must be >= 1"),
+    ({"stop_hz": 5e9}, "stop frequency must be above start"),
+])
+def test_vg_plan_errors(client, params, needle):
+    assert any(needle in e for e in vg_plan(client, **params)["errors"])
+
+
+def test_vg_run_records_gain_and_restores(client, cfg):
+    client.post("/api/rf_synth", json={"pump_enable": False, "pump_frequency_hz": 9e9, "pump_power_dbm": -10})
+    client.post("/api/attenuator", json={"attenuation_db": 30})
+    vna0 = client.get("/api/vna/state").json()
+    r = client.post(f"{VG_URL}/start", json={**VG_SMALL, "att_mode": "set", "attenuation_db": 20})
+    assert r.status_code == 200, r.text
+    job = wait_job(client)
+    assert job["status"] == "done", job
+    assert job["points_done"] == job["points_total"] == 4
+    ax = client.get(f"/api/jobs/{job['id']}?since=0").json()["axis"]
+    assert ax["plot"] == "spectra" and ax["spectra_label"] == "|S21| [dB]" and len(ax["f"]) == 51
+    assert set(ax["spectra"]) == {"pump off", "pump on"} and set(ax["derived"]) == {"gain_db"}
+    rec = json.loads(next(Path(cfg["data_dir"]).rglob("*twpa-vna-gain.json")).read_text())
+    assert rec["status"] == "done" and rec["pump"] == ["off", "on", "on", "off"]
+    assert np.array(rec["s_real"]).shape == (4, 51) and len(rec["s21_on_real"]) == 51
+    assert np.nanmedian(np.array(rec["gain_db"], dtype=float)) > 3          # the sim TWPA amplifies
+    assert rec["attenuator_state"]["attenuation_db"] == 20
+    assert rec["pump_state"]["pump_enable"] and rec["pump_state"]["pump_frequency_hz"] == 8.5e9
+    synth = client.get("/api/rf_synth/state").json()
+    assert synth["pump_enable"] is False and synth["pump_frequency_hz"] == 9e9            # restored
+    assert client.get("/api/attenuator/state").json()["attenuation_db"] == 30
+    assert client.get("/api/vna/state").json()["start_hz"] == vna0["start_hz"]
+    html = client.get(job["html_url"])
+    assert html.status_code == 200 and re.search(r'"plot": ?"spectra"', html.text)

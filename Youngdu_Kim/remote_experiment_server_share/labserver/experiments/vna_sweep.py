@@ -37,6 +37,14 @@ def sweep_values(start: float, stop: float, step: float, unit: str = "dB") -> tu
     return values, warning
 
 
+def map_row(key: str, value: float, averages: int, mean) -> dict:
+    """Result row of one point: |S21| dB and phase of the mean trace."""
+    mean = np.asarray(mean, dtype=complex)
+    return {key: value, "averages": averages,
+            "s_db": np.round(20 * np.log10(np.maximum(np.abs(mean), 1e-30)), 4).tolist(),
+            "deg": np.round(np.degrees(np.angle(mean)), 3).tolist()}
+
+
 class VnaMapSweep(Experiment):
     y_key = ""          # key of the swept setting in plan points, result rows and the record
     y_label = ""
@@ -109,6 +117,19 @@ class VnaMapSweep(Experiment):
         with mgr.use(name, owner=owner, timeout=2.0) as inst:
             return inst.get_state()
 
+    # ---- result ----
+    def map_axis(self, p: dict, freqs) -> dict:
+        key, label, unit = self.y_axis(p)
+        return {"x": np.asarray(freqs, dtype=float).tolist(), "x_unit": "Hz",
+                "y_key": key, "y_label": label, "y_unit": unit}
+
+    def result_view(self, rec: dict) -> dict:
+        p = self.record_settings(rec)
+        key = self.y_axis(p)[0]
+        means = np.asarray(rec["s_real"], dtype=float) + 1j * np.asarray(rec["s_imag"], dtype=float)
+        return {"axis": self.map_axis(p, rec["frequency_hz"]),
+                "rows": [map_row(key, v, n, m) for v, n, m in zip(rec[key], rec["averages"], means)]}
+
     # ---- run hooks ----
     def vna_power_dbm(self, p: dict, points) -> float:
         """VNA power set before the first point."""
@@ -135,7 +156,7 @@ class VnaMapSweep(Experiment):
         plan = self.plan(p)
         if plan["errors"]:
             raise ValueError("; ".join(plan["errors"]))
-        key, label, unit = self.y_axis(p)
+        key = self.y_axis(p)[0]
         points = [(pt[key], pt["averages"]) for pt in plan["points"]]
         mgr, owner = job.mgr, job.owner
         job.progress("reserving instruments", points_total=len(points), traces_total=sum(n for _, n in points))
@@ -152,7 +173,7 @@ class VnaMapSweep(Experiment):
                        s_real=[], s_imag=[], instruments=snapshot)
             if p["save_all_traces"]:
                 rec.update(traces_real=[], traces_imag=[])
-            job.axis = {"x": freqs.tolist(), "x_unit": "Hz", "y_key": key, "y_label": label, "y_unit": unit}
+            job.axis = self.map_axis(p, freqs)
             try:
                 self._measure(p, job, points, snapshot)
             finally:
@@ -206,10 +227,7 @@ class VnaMapSweep(Experiment):
             if singles:
                 rec["traces_real"].append([s.real for s in singles])
                 rec["traces_imag"].append([s.imag for s in singles])
-            mag = np.abs(mean)
-            job.add_row({key: value, "averages": n,
-                         "s_db": np.round(20 * np.log10(np.maximum(mag, 1e-30)), 4).tolist(),
-                         "deg": np.round(np.degrees(np.angle(mean)), 3).tolist()})
+            job.add_row(map_row(key, value, n, mean))
         job.progress(f"{len(points)} points measured", points_done=len(points))
 
     def _finish(self, p, job, snapshot):

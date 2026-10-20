@@ -156,3 +156,13 @@ class Experiment:
 
     def run(self, params: dict, job) -> None:
         raise NotImplementedError
+
+    def record_settings(self, rec: dict) -> dict:
+        """The settings of a saved record, with the defaults for the ones it left out (the
+        ones the form hid, which the run did not use)."""
+        return {**{q.key: q.default for q in self.params}, **rec.get("params", {})}
+
+    def result_view(self, rec: dict) -> dict | None:
+        """{"axis": ..., "rows": [...]} of a saved record, as the running job showed them
+        (job.axis, job.add_row), for the HTML export (report.py). None: no plot."""
+        return None

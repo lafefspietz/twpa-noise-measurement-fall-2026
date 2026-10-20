@@ -4,6 +4,7 @@ from .fgen33220a import Fgen33220A
 from .gs210 import GS210
 from .rc4spdt import RC4SPDT
 from .rcdat import RCDAT
+from .smw200a import SMW200A
 from .windfreak import WindfreakSynthHD
 from .zva import ZVA
 
@@ -12,11 +13,12 @@ DRIVERS: dict[str, type[Instrument]] = {
     "e7405a": E7405A,
     "zva": ZVA,
     "windfreak": WindfreakSynthHD,
+    "smw200a": SMW200A,
     "gs210": GS210,
     "fgen33220a": Fgen33220A,
     "rc4spdt": RC4SPDT,
     "rcdat": RCDAT,
 }
 
-__all__ = ["DRIVERS", "E7405A", "Fgen33220A", "GS210", "RC4SPDT", "RCDAT", "WindfreakSynthHD", "ZVA",
+__all__ = ["DRIVERS", "E7405A", "Fgen33220A", "GS210", "RC4SPDT", "RCDAT", "SMW200A", "WindfreakSynthHD", "ZVA",
            "Instrument", "InstrumentError", "MeasurementError", "Trace"]

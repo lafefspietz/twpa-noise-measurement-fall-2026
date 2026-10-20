@@ -12,7 +12,12 @@ log = logging.getLogger("labserver.drivers")
 
 
 class InstrumentError(Exception):
-    """The instrument reported an error, or a request was rejected (e.g. a limit)."""
+    """The instrument reported an error (errors: what its error queue said), or a request
+    was rejected (e.g. a limit; errors empty)."""
+
+    def __init__(self, msg: str, errors: list[str] | None = None):
+        super().__init__(msg)
+        self.errors = errors or []
 
 
 class MeasurementError(Exception):
@@ -167,7 +172,7 @@ class Instrument:
             self._pending = {}
         errors = self.errors()
         if errors:
-            raise InstrumentError(f"{self.name}: instrument reported {errors}")
+            raise InstrumentError(f"{self.name}: instrument reported {errors}", errors)
         return self.get_state()
 
     def check_limit(self, key: str, value) -> None:

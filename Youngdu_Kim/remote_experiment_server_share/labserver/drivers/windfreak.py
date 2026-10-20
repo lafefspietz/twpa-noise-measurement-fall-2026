@@ -1,7 +1,8 @@
 """Windfreak SynthHD two-channel synthesizer (USB serial, via the `windfreak` package).
 
-Channels get names in config.yaml (probe = A, pump = B, as in the notebooks), and
-parameters are flattened to "<channel>_<param>", e.g. pump_power_dbm.
+Channels get names in config.yaml (pump = B; channel A was the probe until the SMW200A
+took over on 2026-10-19), and parameters are flattened to "<channel>_<param>", e.g.
+pump_power_dbm. safe_off() turns off both channels, named or not.
 
 Unlike the notebooks this never calls synth.init(): that forces the internal 27 MHz
 reference and resets both channels to minimum frequency/power. Set
@@ -14,7 +15,8 @@ from .base import Instrument, InstrumentError
 
 PARAMS = {"enable": bool, "frequency_hz": float, "power_dbm": float}
 LIB_ATTR = {"enable": "enable", "frequency_hz": "frequency", "power_dbm": "power"}
-DEFAULT_CHANNELS = {"probe": 0, "pump": 1}
+DEFAULT_CHANNELS = {"pump": 1}
+N_CHANNELS = 2
 
 
 class WindfreakSynthHD(Instrument):
@@ -92,7 +94,7 @@ class WindfreakSynthHD(Instrument):
         return state
 
     def safe_off(self):
-        for idx in self.channels.values():
+        for idx in range(N_CHANNELS):
             c = self.t[idx]
             self._io(lambda: setattr(c, "enable", False))
 
@@ -150,7 +152,8 @@ class FakeSynthHD:
 
         self.world = world or SimWorld()
         self.reference_mode = "external"
-        self._channels = [_FakeChannel(self.world, "rf_probe"), _FakeChannel(self.world, "rf_pump")]
+        # channel A is not cabled to anything in the sim (the probe is the SMW200A)
+        self._channels = [_FakeChannel(self.world, "rf_synth_a"), _FakeChannel(self.world, "rf_pump")]
 
     def __getitem__(self, i):
         return self._channels[i]

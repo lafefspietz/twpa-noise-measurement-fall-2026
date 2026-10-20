@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import json
 import logging
 import subprocess
 import threading
@@ -31,6 +32,7 @@ from .experiments import EXPERIMENTS, ExperimentError
 from .jobs import JobRunner
 from .live import LiveHub
 from .manager import InstrumentBusy, InstrumentManager, InstrumentUnavailable, OutputsOff
+from .report import NotAnExperiment, render
 from .settings import ConfirmNeeded, Settings, SettingsError
 from .sim import SimWorld
 from .storage import save_record
@@ -112,6 +114,14 @@ def create_app(cfg: dict, *, sim: bool = False, world: SimWorld | None = None) -
     @app.get("/", response_class=HTMLResponse)
     def index():
         return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
+
+    @app.get("/static/{file}")
+    def static(file: str):
+        """The page's other files (results.js/.css, shared with the HTML export)."""
+        path = (STATIC / file).resolve()
+        if path.parent != STATIC or not path.is_file():
+            return JSONResponse(status_code=404, content={"error": "not_found", "detail": file})
+        return FileResponse(path, headers={"Cache-Control": "no-store"})
 
     @app.get("/api/status")
     def status():
@@ -304,12 +314,26 @@ def create_app(cfg: dict, *, sim: bool = False, world: SimWorld | None = None) -
 
     @app.get("/api/data/{day}/{file}")
     def download(day: str, file: str):
-        """A saved record, sent as a download (the UI fetches this right after saving)."""
+        """A saved record, sent as a download (the UI fetches this right after saving).
+        <name>.html instead of <name>.json: the interactive HTML page of an experiment
+        record (report.py), built from the JSON on request."""
         root = Path(cfg["data_dir"]).resolve()
         path = (root / day / file).resolve()
-        if path.parent.parent != root or path.suffix != ".json" or not path.is_file():
-            return JSONResponse(status_code=404, content={"error": "not_found", "detail": f"{day}/{file}"})
-        return FileResponse(path, media_type="application/json", filename=path.name)
+        src = path.with_suffix(".json")
+        not_found = JSONResponse(status_code=404, content={"error": "not_found", "detail": f"{day}/{file}"})
+        if path.parent.parent != root or path.suffix not in (".json", ".html") or not src.is_file():
+            return not_found
+        if path.suffix == ".json":
+            return FileResponse(path, media_type="application/json", filename=path.name)
+        rec = json.loads(src.read_text(encoding="utf-8"))
+        exp = experiments.get(rec.get("experiment"))
+        try:
+            if exp is None:
+                raise NotAnExperiment(f"{src.name} is not an experiment record")
+            page = render(exp, rec, src.name)
+        except NotAnExperiment as e:
+            return JSONResponse(status_code=404, content={"error": "not_found", "detail": str(e)})
+        return HTMLResponse(page, headers={"Content-Disposition": f'attachment; filename="{path.name}"'})
 
     @app.websocket("/ws/live/{name}")
     async def ws_live(ws: WebSocket, name: str):

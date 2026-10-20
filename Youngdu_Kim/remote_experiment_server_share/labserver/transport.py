@@ -240,5 +240,13 @@ class VisaTransport(Transport):
         except self._visa_error as e:
             raise TransportError(f"clear: {e}") from e
 
+    def go_to_local(self) -> None:
+        from . import usbtmc_patch
+
+        try:
+            usbtmc_patch.usb488_go_to_local(self._res)      # no-op (False) if not a pyvisa-py USB session
+        except OSError as e:   # usb.core.USBError
+            raise TransportError(f"go_to_local: {e}") from e
+
     def close(self) -> None:
         self._res.close()

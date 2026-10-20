@@ -2,12 +2,17 @@
 
 Steps the noise source bias (33220A DC offset, the hot wire) and records the zero-span
 noise power on the SA at one frequency at each step, like noise-sweep-zero-power.ipynb
-(-0.2..0.2 V in 41 points, RBW 3 MHz, sample detector, power averaging, unit W, the mean
-and std of one trace per point). This only takes the data; T_N and gain are fitted
-separately from power_w(bias_v).
+(-0.2..0.2 V in 41 points, unit W, the mean and std of one trace per point). This only
+takes the data; T_N and gain are fitted separately from power_w(bias_v).
 
-Signal path: fridge_in -> rf_probe, rx_source -> fridge, receiver -> spa. The SynthHD
-probe is turned off first, so nothing drives the fridge input (the VNA is switched out).
+The SA always uses the average detector with power (RMS) averaging (:AVER:TYPE POW): each
+point is the mean in W of the samples in it, so it reads the noise power itself. On our
+E7405A (2026-10-20) that held at RBW <= 100 kHz with VBW 3 MHz and a sweep of about 1 s;
+the sample detector with a narrow VBW averages in the vertical scale (dB or voltage) instead
+and reads Gaussian noise low by an RBW-dependent amount.
+
+Signal path: fridge_in -> rf_probe, rx_source -> fridge, receiver -> spa. The probe
+(SMW200A) is turned off first, so nothing drives the fridge input (the VNA is switched out).
 
 TWPA pump (SynthHD channel B): left as it is, set to a frequency and power and turned on
 for the sweep (TWPA on), or turned off for the sweep (TWPA off, the reference). Its
@@ -40,32 +45,27 @@ from .vna_sweep import sweep_values
 log = logging.getLogger("labserver.experiments")
 
 NOISE = "noise_source_bias"
-SYNTH = "rf_synth"
+PROBE = "rf_probe"          # SMW200A: probe / signal tone (probe_* keys)
+SYNTH = "rf_synth"          # SynthHD: TWPA pump (pump_* keys)
 PROBE_ON = "probe_enable"
 PUMP_ON = "pump_enable"
 PUMP_KEYS = ("pump_frequency_hz", "pump_power_dbm")
 SWITCH_PATH = {"fridge_in": "rf_probe", "rx_source": "fridge", "receiver": "spa"}
 TRACE_OVERHEAD_S = 0.3      # INIT:IMM + *OPC? + 401-point ASCII transfer over GPIB (rough)
-MIN_SWEEP_S = 0.01          # floor for the default sweep time (the E7405A can sweep faster)
+# The average detector averages only ~125 independent samples per point per second of sweep
+# (RBW 100 kHz; ~40 at 10 kHz, ~170 at 1 MHz) and not at all at 10 ms or less (2026-10-20).
+DEFAULT_SWEEP_S = 1.0
+MIN_SWEEP_S = 0.5           # below this the plan check warns
+MAX_RBW_HZ = 100e3          # above this the noise reads low (1 MHz: -0.99 dB, VBW max 3 MHz)
+VBW_RATIO = 30              # VBW/RBW below this: the VBW filter averages in the vertical scale first
 SA_KEYS = ("detector", "vbw_hz", "rbw_hz", "center_hz", "span_hz", "sweep_time_s", "scale", "unit", "ref_level")
 
 SWEEP = "Noise source bias sweep"
-SA = "Spectrum analyzer (zero span, sample detector)"
+SA = "Spectrum analyzer (zero span, average detector, power)"
 PUMP = "TWPA pump"
 QUBIT = "Qubit flux bias"
 END = "Before and after"
 SAVE = "Save"
-
-
-def default_sweep_time(rbw_hz: float, vbw_hz: float) -> float:
-    """Zero-span sweep time with the 401 samples about two video time constants apart.
-
-    The detected noise is smoothed by the narrower of the RBW filter (envelope) and the
-    VBW filter; with a single-pole time constant tau = 1/(2 pi B) the samples correlate
-    as exp(-dt/tau), so dt = 2 tau = 1/(pi B) leaves e^-2 ~ 0.14 between neighbours.
-    Sweep time = 400 dt, rounded to 2 digits, at least MIN_SWEEP_S."""
-    b = min(rbw_hz, vbw_hz)
-    return max(MIN_SWEEP_S, float(f"{400 / (np.pi * b):.2g}"))
 
 
 def pump_text(st: dict) -> str:
@@ -84,13 +84,61 @@ def bias_setup(state: dict, first: float) -> tuple[str | None, str]:
     return None, f"noise source bias output is off: set to DC {first:g} V, then turned on"
 
 
+def noise_start(job, state: dict, first: float):
+    """The noise source to first: if its output is off, set to DC at first and then turned on
+    (bias_setup has checked that an output already on is in DC)."""
+    mgr, owner = job.mgr, job.owner
+    job.progress(f"setting the noise source bias to {first:g} V")
+    if state["output"]:
+        mgr.apply(NOISE, owner, offset_v=first)
+    else:
+        mgr.apply(NOISE, owner, function="DC", offset_v=first)
+        mgr.apply(NOISE, owner, output=True)
+
+
+def noise_restore(exp, job, st0: dict, done: list[str]):
+    """The noise source back to st0: the old offset if it was on; if it was off, off, then its
+    old function and offset (0 V if that is outside the limits)."""
+    mgr, owner = job.mgr, job.owner
+    if st0["output"]:
+        mgr.apply(NOISE, owner, offset_v=st0["offset_v"])
+    else:
+        mgr.apply(NOISE, owner, output=False)
+        if within(exp.limits(NOISE).get("offset_v"), st0["offset_v"]):
+            mgr.apply(NOISE, owner, function=st0["function"], offset_v=st0["offset_v"])
+        else:
+            mgr.apply(NOISE, owner, offset_v=0.0)
+            job.notes.append(f"noise source left at 0 V: the old offset {st0['offset_v']:g} V is outside the limits")
+    done.append("noise source restored")
+
+
+def synth_restore(exp, job, st0: dict, done: list[str], ch: str = "pump"):
+    """The pump (SynthHD) or the probe (SMW200A) back to st0, the state of its instrument:
+    frequency and power (with the output off, if it was off), then on if it was on. Old
+    values outside the limits are not sent."""
+    mgr, owner = job.mgr, job.owner
+    inst, what = (SYNTH, "TWPA pump") if ch == "pump" else (PROBE, ch)
+    on, keys = f"{ch}_enable", (f"{ch}_frequency_hz", f"{ch}_power_dbm")
+    lim = exp.limits(inst)
+    if not st0.get(on):
+        mgr.apply(inst, owner, **{on: False})
+    old = {k: st0[k] for k in keys if k in st0 and within(lim.get(k), st0[k])}
+    if len(old) < len(keys):
+        job.notes.append(f"{what} frequency/power not all restored: the old values are outside the limits")
+    if old:
+        mgr.apply(inst, owner, **old)
+    if st0.get(on):
+        mgr.apply(inst, owner, **{on: True})
+    done.append(f"{what} restored")
+
+
 class YFactorMeasurement(Experiment):
     id = "y_factor_measurement"
     title = "Y factor measurement"
     summary = ("Step the noise source bias (33220A DC, hot wire) and record the zero-span noise power "
                "on the SA at one frequency at each step, for a Y-factor analysis afterwards. "
                "Result: power vs bias.")
-    instruments = ["spa", NOISE, "warm_switches", SYNTH, FLUX]
+    instruments = ["spa", NOISE, "warm_switches", PROBE, SYNTH, FLUX]
     turns_on = "the noise source bias (and the TWPA pump and the flux bias, if set for the sweep)"
     params = [
         Param("bias_start_v", "from", unit="V", default=-0.2, group=SWEEP),
@@ -107,15 +155,18 @@ class YFactorMeasurement(Experiment):
         # SA
         Param("center_hz", "frequency", unit="GHz", scale=1e9, default=5.58e9, group=SA,
               from_state=["spa", "center_hz"]),
-        Param("rbw_hz", "RBW", unit="kHz", scale=1e3, default=3e6, group=SA, from_state=["spa", "rbw_hz"],
-              help="The ESA takes 1-3-10 steps (RBW and VBW): the run reads back the values it took, works out "
-                   "the default sweep time from them, and saves and shows them."),
-        Param("vbw_hz", "VBW", unit="kHz", scale=1e3, default=1e3, group=SA, from_state=["spa", "vbw_hz"]),
-        Param("sweep_time_s", "sweep time", unit="s", default=None, group=SA, from_state=["spa", "sweep_time_s"],
-              help="Length of one zero-span trace (401 points). Empty = from the RBW/VBW the SA takes (shown in gray): "
-                   "400 / (pi min(RBW, VBW)), so neighbouring samples are about two video time constants "
-                   "apart and nearly independent; at least 10 ms. Zero span has no auto sweep time on the "
-                   "E7405A (+620), so the value is always sent."),
+        Param("rbw_hz", "RBW", unit="kHz", scale=1e3, default=100e3, group=SA, from_state=["spa", "rbw_hz"],
+              help="100 kHz or less: at 1 MHz the noise reads ~1 dB low (VBW 3 MHz, the maximum, is not >> RBW). "
+                   "100 kHz averages fastest (10 kHz averages ~3x fewer samples per second). The ESA takes "
+                   "1-3-10 steps (RBW and VBW): the run reads back the values it took and saves and shows them."),
+        Param("vbw_hz", "VBW", unit="kHz", scale=1e3, default=3e6, group=SA, from_state=["spa", "vbw_hz"],
+              help="3 MHz (the maximum). The VBW filter averages in the vertical scale (dB on LOG, voltage on LIN) "
+                   "before the detector, so a VBW below 30 x RBW makes the noise read low."),
+        Param("sweep_time_s", "sweep time", unit="s", default=None, group=SA,
+              help="Length of one zero-span trace (401 points). Empty = 1 s (shown in gray). Make it long, about "
+                   "1 s: each point averages only ~125 independent samples per second of sweep at RBW 100 kHz "
+                   "(~40 at 10 kHz), and at 10 ms or less it does not average at all. Zero span has no auto "
+                   "sweep time on the E7405A (+620), so the value is always sent."),
         Param("scale", "vertical scale", kind="select", default="LOG", group=SA,
               options=[["LOG", "log (10 dB/div)"], ["LIN", "linear"]],
               help="Separate from the unit (the sweep always reads in W). In LIN our E7405A only reads right "
@@ -158,12 +209,12 @@ class YFactorMeasurement(Experiment):
               help="Limit: qubit_flux_bias level (VOLT mode) in the settings tab. If the output is off it is turned "
                    "on at 0 V and ramped there; if on, ramped from where it is."),
         # before / after
-        Param("set_switches", "set the warm switches to SynthHD probe -> fridge -> SA first", kind="bool",
+        Param("set_switches", "set the warm switches to probe -> fridge -> SA first", kind="bool",
               default=True, group=END,
-              help="fridge_in -> rf_probe, rx_source -> fridge, receiver -> spa. The SynthHD probe is "
+              help="fridge_in -> rf_probe, rx_source -> fridge, receiver -> spa. The probe (SMW200A) is "
                    "turned off either way; the TWPA pump only as set above."),
         Param("finish", "when done", kind="select", default="restore", group=END,
-              options=[["restore", "restore the SA, switches, SynthHD probe and pump, flux bias and noise source "
+              options=[["restore", "restore the SA, switches, probe, TWPA pump, flux bias and noise source "
                                    "as they were"],
                        ["last", "leave everything at the last point (the probe stays off)"],
                        ["off", "turn the noise source off at 0 V, and the TWPA pump and the flux bias "
@@ -199,12 +250,8 @@ class YFactorMeasurement(Experiment):
 
     @staticmethod
     def sweep_time(p: dict) -> float | None:
-        """The typed sweep time, or the default from RBW/VBW (None if those are invalid)."""
-        if p["sweep_time_s"] is not None:
-            return p["sweep_time_s"]
-        if p["rbw_hz"] > 0 and p["vbw_hz"] > 0:
-            return default_sweep_time(p["rbw_hz"], p["vbw_hz"])
-        return None
+        """The typed sweep time, or the default."""
+        return DEFAULT_SWEEP_S if p["sweep_time_s"] is None else p["sweep_time_s"]
 
     @staticmethod
     def ref_level_w(p: dict) -> float:
@@ -220,11 +267,11 @@ class YFactorMeasurement(Experiment):
         if p["rbw_hz"] <= 0 or p["vbw_hz"] <= 0:
             errors.append("RBW and VBW must be > 0")
         if p["sweep_time_s"] is not None and p["sweep_time_s"] <= 0:
-            errors.append("sweep time must be > 0; leave it empty for the default from RBW/VBW "
-                          "(zero span has no auto sweep time)")
+            errors.append("sweep time must be > 0; leave it empty for the default (1 s)")
         if p["scale"] == "LIN":
             warnings.append("LIN scale: the SA reads right only from the reference level down to about "
                             "20 dB below it; LOG is safer")
+        self.check_sa_settings(p, warnings)
         if p["settle_s"] < 0:
             errors.append("wait after each step must be >= 0")
         if p["center_hz"] <= 0:
@@ -264,10 +311,9 @@ class YFactorMeasurement(Experiment):
         derived = {}
         if p["sweep_time_s"] is None and sweep_s is not None:
             derived["sweep_time_s"] = sweep_s
-            notes.append(f"sweep time {sweep_s:g} s per trace, from RBW {p['rbw_hz'] / 1e3:g} kHz / VBW {p['vbw_hz'] / 1e3:g} kHz "
-                         f"(the run works it out again from the RBW/VBW the SA takes)")
+            notes.append(f"sweep time {sweep_s:g} s per trace (the default)")
         if sweep_s and sweep_s > 10:
-            warnings.append(f"each trace takes {sweep_s:g} s; a wider VBW or a shorter sweep time is faster")
+            warnings.append(f"each trace takes {sweep_s:g} s; a shorter sweep time is faster")
         if points:
             notes.append(f"{traces} traces in all at {p['center_hz'] / 1e9:g} GHz; noise source bias "
                          f"{points[0][1]:g} -> {points[-1][1]:g} V"
@@ -277,6 +323,21 @@ class YFactorMeasurement(Experiment):
                 "estimate_s": round(estimate_s, 1), "size_mb": round(size_mb, 2),
                 "columns": [["i", "#", ""], ["pass", "pass", ""], ["bias_v", "bias", "V"], ["traces", "traces", ""]],
                 "derived": derived, "errors": errors, "warnings": warnings, "notes": notes}
+
+    def check_sa_settings(self, p: dict, warnings: list[str]):
+        """Settings that make the average detector read the noise low (2026-10-20, our E7405A)."""
+        rbw, vbw, sweep_s = p["rbw_hz"], p["vbw_hz"], self.sweep_time(p)
+        if rbw <= 0 or vbw <= 0:
+            return
+        if rbw > MAX_RBW_HZ:
+            warnings.append(f"RBW {rbw / 1e3:g} kHz: the noise reads low (~1 dB at 1 MHz, where VBW 3 MHz is "
+                            f"not >> RBW); use RBW <= 100 kHz")
+        if vbw < VBW_RATIO * rbw:
+            warnings.append(f"VBW {vbw / 1e3:g} kHz: the VBW filter averages in the vertical scale (dB or voltage) "
+                            f"before the detector, so the noise reads low; use VBW >= {VBW_RATIO} x RBW (3 MHz)")
+        if 0 < sweep_s < MIN_SWEEP_S:
+            warnings.append(f"{sweep_s:g} s sweep: each point averages only ~{max(1, round(125 * sweep_s))} "
+                            f"samples (none at 10 ms or less); use about 1 s")
 
     def check_instruments(self, mgr, p, points, errors, warnings, notes) -> int:
         """Reads only. Returns the sweeps per trace (the SA's own averaging)."""
@@ -341,12 +402,15 @@ class YFactorMeasurement(Experiment):
         """A tone into the fridge would land on the SA. The probe is turned off by the sweep;
         the VNA only matters if the switches are left on it."""
         try:
-            synth = self.read_state(mgr, SYNTH)
-            if synth.get(PROBE_ON):
-                notes.append(f"SynthHD probe is on ({synth['probe_frequency_hz'] / 1e9:g} GHz, "
-                             f"{synth['probe_power_dbm']:g} dBm): turned off first"
+            probe = self.read_state(mgr, PROBE)
+            if probe.get(PROBE_ON):
+                notes.append(f"probe is on ({probe['probe_frequency_hz'] / 1e9:g} GHz, "
+                             f"{probe['probe_power_dbm']:g} dBm): turned off first"
                              + (", back on after" if p["finish"] == "restore" else ""))
-            notes.append(self.pump_note(p, synth))
+        except Exception as e:
+            errors.append(f"could not read the probe (SMW200A): {e}")
+        try:
+            notes.append(self.pump_note(p, self.read_state(mgr, SYNTH)))
         except Exception as e:
             (errors if p["pump_mode"] != "keep" else warnings).append(f"could not read the SynthHD: {e}")
         if fridge_in == "vna" and not p["set_switches"]:
@@ -386,7 +450,7 @@ class YFactorMeasurement(Experiment):
 
         with mgr.claim(self.instruments, owner):
             snapshot = mgr.snapshot(owner=owner)
-            for name in ("spa", NOISE, SYNTH) + ((FLUX,) if p["flux_mode"] == "set" else ()):
+            for name in ("spa", NOISE, PROBE, SYNTH) + ((FLUX,) if p["flux_mode"] == "set" else ()):
                 if "error" in snapshot.get(name, {}):
                     raise RuntimeError(f"cannot read {name}: {snapshot[name]['error']}")
             err, _ = bias_setup(snapshot[NOISE], points[0][1])
@@ -399,8 +463,7 @@ class YFactorMeasurement(Experiment):
                        power_w=[], power_std_w=[], trace_mean_w=[], trace_std_w=[], instruments=snapshot)
             if p["save_samples"]:
                 rec["samples_w"] = []
-            job.axis = {"plot": "xy", "x_key": "bias_v", "x_label": "noise source bias", "x_unit": "V",
-                        "y_key": "power_w", "y_label": "noise power", "y_unit": "W"}
+            job.axis = self.xy_axis(rec)
             try:
                 self._measure(p, job, points, snapshot)
             finally:
@@ -408,8 +471,8 @@ class YFactorMeasurement(Experiment):
 
     def _measure(self, p, job, points, snapshot):
         mgr, owner, rec = job.mgr, job.owner, job.record
-        job.progress("turning the SynthHD probe off")
-        mgr.apply(SYNTH, owner, **{PROBE_ON: False})
+        job.progress("turning the probe off")
+        mgr.apply(PROBE, owner, **{PROBE_ON: False})
         if p["set_switches"]:
             job.progress("setting the warm switches")
             mgr.apply("warm_switches", owner, **SWITCH_PATH)
@@ -423,15 +486,18 @@ class YFactorMeasurement(Experiment):
 
         job.progress("setting up the SA")
         # same order as twpa_calibration.ipynb's zero-span setup. The SA picks its own
-        # RBW/VBW steps (1-3-10), so they are read back before anything depends on them:
-        # the default sweep time is worked out from the values the SA took.
+        # RBW/VBW steps (1-3-10), so they are read back and noted.
         # the scale goes before the unit, in case the SA changes the unit with it
-        sa = mgr.apply("spa", owner, detector="SAMP", vbw_hz=p["vbw_hz"], rbw_hz=p["rbw_hz"],
-                       center_hz=p["center_hz"], span_hz=0, scale=p["scale"], unit="W")
+        sa = mgr.apply("spa", owner, detector="AVER", average_type="POW", vbw_hz=p["vbw_hz"],
+                       rbw_hz=p["rbw_hz"], center_hz=p["center_hz"], span_hz=0, scale=p["scale"], unit="W")
+        if str(sa["detector"]).upper() != "AVER":
+            raise RuntimeError(f"SA detector is {sa['detector']}, not AVER")
+        if not str(sa["average_type"]).upper().startswith("POW"):
+            raise RuntimeError(f"SA average type is {sa['average_type']}, not POW")
         for key, want, label in (("rbw_hz", p["rbw_hz"], "RBW"), ("vbw_hz", p["vbw_hz"], "VBW")):
             if abs(sa[key] - want) > 1e-6 * want:
                 job.notes.append(f"the SA took {label} {sa[key] / 1e3:g} kHz (asked for {want / 1e3:g} kHz)")
-        sweep_s = p["sweep_time_s"] or default_sweep_time(sa["rbw_hz"], sa["vbw_hz"])
+        sweep_s = self.sweep_time(p)
         ref_w = self.ref_level_w(p)
         # the unit (W) is set above, so the reference level is in W
         sa = mgr.apply("spa", owner, sweep_time_s=sweep_s, ref_level=ref_w)
@@ -445,18 +511,11 @@ class YFactorMeasurement(Experiment):
             job.notes.append(f"the SA took sweep time {sa['sweep_time_s']:g} s (asked for {sweep_s:g} s)")
         # what the SA actually used, for the analysis (params has what was typed)
         rec["spa_setup"] = sa
-        rec.update(rbw_hz=sa["rbw_hz"], vbw_hz=sa["vbw_hz"], sweep_time_s=sa["sweep_time_s"])
-        job.axis["title"] = (f"{sa['center_hz'] / 1e9:g} GHz, RBW {sa['rbw_hz'] / 1e3:g} kHz, VBW {sa['vbw_hz'] / 1e3:g} kHz, "
-                             f"sweep {sa['sweep_time_s']:g} s (as the SA took them)")
+        rec.update(rbw_hz=sa["rbw_hz"], vbw_hz=sa["vbw_hz"], sweep_time_s=sa["sweep_time_s"],
+                   detector=sa["detector"], average_type=sa["average_type"])
+        job.axis = self.xy_axis(rec)
 
-        st = snapshot[NOISE]
-        first = points[0][1]
-        job.progress(f"setting the noise source bias to {first:g} V")
-        if st["output"]:
-            mgr.apply(NOISE, owner, offset_v=first)
-        else:
-            mgr.apply(NOISE, owner, function="DC", offset_v=first)
-            mgr.apply(NOISE, owner, output=True)
+        noise_start(job, snapshot[NOISE], points[0][1])
 
         traces_done, clipped = 0, []
         for i, (k, bias) in enumerate(points):
@@ -495,13 +554,31 @@ class YFactorMeasurement(Experiment):
             rec["trace_std_w"].append(s.std(axis=1))
             if p["save_samples"]:
                 rec["samples_w"].append(s)
-            job.add_row({"bias_v": bias, "pass": k, "traces": p["traces"],
-                         "power_w": float(s.mean()), "power_std_w": float(s.std())})
+            job.add_row(self.xy_row(rec, i))
         if clipped:
             job.notes.append(f"samples above the reference level ({ref_w:.3g} W) at "
                              f"{len(clipped)} point(s), e.g. {clipped[0]:g} V: the SA may have clipped; "
                              f"raise the reference level")
         job.progress(f"{len(points)} points measured", points_done=len(points))
+
+    # ---- result ----
+    @staticmethod
+    def xy_axis(rec: dict) -> dict:
+        """Plot axis for the record so far (the title once the SA is set up)."""
+        ax = {"plot": "xy", "x_key": "bias_v", "x_label": "noise source bias", "x_unit": "V",
+              "y_key": "power_w", "y_label": "noise power", "y_unit": "W"}
+        sa = rec.get("spa_setup")
+        if sa:
+            ax["title"] = (f"{sa['center_hz'] / 1e9:g} GHz, RBW {sa['rbw_hz'] / 1e3:g} kHz, "
+                           f"VBW {sa['vbw_hz'] / 1e3:g} kHz, sweep {sa['sweep_time_s']:g} s (as the SA took them)")
+        return ax
+
+    @staticmethod
+    def xy_row(rec: dict, i: int) -> dict:
+        return {k: rec[k][i] for k in ("bias_v", "pass", "traces", "power_w", "power_std_w")}
+
+    def result_view(self, rec: dict) -> dict:
+        return {"axis": self.xy_axis(rec), "rows": [self.xy_row(rec, i) for i in range(len(rec["bias_v"]))]}
 
     def _pump_start(self, p, job):
         """Set the pump as asked (the power before the output goes on), wait, and save its state."""
@@ -522,22 +599,6 @@ class YFactorMeasurement(Experiment):
         if st.get(PUMP_ON) and st.get("pump_locked") is False:
             job.notes.append("the SynthHD pump channel is not locked")
 
-    def _pump_restore(self, job, st0: dict, done: list[str]):
-        """Back to st0: frequency and power (with the output off, if it was off), then on
-        if it was on. Old values outside the limits are not sent."""
-        mgr, owner = job.mgr, job.owner
-        lim = self.limits(SYNTH)
-        if not st0.get(PUMP_ON):
-            mgr.apply(SYNTH, owner, **{PUMP_ON: False})
-        old = {k: st0[k] for k in PUMP_KEYS if k in st0 and within(lim.get(k), st0[k])}
-        if len(old) < len(PUMP_KEYS):
-            job.notes.append("TWPA pump frequency/power not all restored: the old values are outside the limits")
-        if old:
-            mgr.apply(SYNTH, owner, **old)
-        if st0.get(PUMP_ON):
-            mgr.apply(SYNTH, owner, **{PUMP_ON: True})
-        done.append("TWPA pump restored")
-
     def _finish(self, p, job, snapshot):
         """Leave the instruments as asked. After "outputs off" nothing is sent: the
         outputs are already off and every command would be refused. Restoring the SA
@@ -550,17 +611,7 @@ class YFactorMeasurement(Experiment):
         done = []
         try:
             if p["finish"] == "restore":
-                if ns0["output"]:
-                    mgr.apply(NOISE, owner, offset_v=ns0["offset_v"])
-                else:
-                    mgr.apply(NOISE, owner, output=False)
-                    if within(self.limits(NOISE).get("offset_v"), ns0["offset_v"]):
-                        mgr.apply(NOISE, owner, function=ns0["function"], offset_v=ns0["offset_v"])
-                    else:
-                        mgr.apply(NOISE, owner, offset_v=0.0)
-                        job.notes.append(f"noise source left at 0 V: the old offset {ns0['offset_v']:g} V "
-                                         f"is outside the limits")
-                done.append("noise source restored")
+                noise_restore(self, job, ns0, done)
                 if set_flux:
                     flux_finish(job, snapshot.get(FLUX, {}), "restore", self.limits(FLUX), done)
                 restore = {k: sa0[k] for k in SA_KEYS if k in sa0}
@@ -575,10 +626,10 @@ class YFactorMeasurement(Experiment):
                     mgr.apply("warm_switches", owner, **{k: sw0[k] for k in SWITCH_PATH if k in sw0})
                     done.append("switches restored")
                 if p["pump_mode"] != "keep" and "error" not in snapshot.get(SYNTH, {}):
-                    self._pump_restore(job, snapshot[SYNTH], done)
-                if snapshot.get(SYNTH, {}).get(PROBE_ON):
-                    mgr.apply(SYNTH, owner, **{PROBE_ON: True})        # after the switches are back
-                    done.append("SynthHD probe back on")
+                    synth_restore(self, job, snapshot[SYNTH], done)
+                if snapshot.get(PROBE, {}).get(PROBE_ON):
+                    mgr.apply(PROBE, owner, **{PROBE_ON: True})        # after the switches are back
+                    done.append("probe back on")
             elif p["finish"] == "off":
                 mgr.apply(NOISE, owner, offset_v=0.0)
                 mgr.apply(NOISE, owner, output=False)

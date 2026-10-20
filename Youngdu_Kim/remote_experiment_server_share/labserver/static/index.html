@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Remote Experiment Server</title>
+<link rel="stylesheet" href="/static/results.css">
 <style>
   body { margin: 12px; background: #fff; color: #000; font: 14px/1.4 "Courier New", monospace; }
   h1 { font: bold 18px Arial, sans-serif; margin: 0 12px 0 0; display: inline; }
@@ -48,10 +49,6 @@
   table.segs th { font-weight: normal; text-align: left; padding: 0 6px 0 0; }
   table.segs td { padding: 1px 6px 1px 0; }
   table.segs input[type=number] { width: 90px; }
-  #mapPlot { display: block; width: 100%; height: 480px; border: 1px solid #000; cursor: crosshair; }
-  #cuts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 10px; margin-top: 8px; }
-  #cuts canvas { display: block; width: 100%; height: 260px; border: 1px solid #000; }
-  #xyPlot { display: block; width: 100%; height: 420px; border: 1px solid #000; }
   .control .note { font-weight: bold; margin-left: 10px; }
   #cfgForm fieldset { border: 1px solid #000; margin: 10px 0; padding: 4px 10px 8px; }
   #cfgForm legend { font-weight: bold; padding: 0 4px; }
@@ -124,22 +121,9 @@
       <button id="expStop" hidden title="Stops after the trace being read; the points so far are saved">stop</button>
     </div>
     <div id="expRun" hidden>
-      <div class="row"><b>result</b> <span id="runStatus"></span> <a id="runFile"></a></div>
-      <div id="mapView">
-      <div class="row">show: <select id="mapQty"><option value="db">|S21| dB</option><option value="deg">phase deg</option></select>
-        &nbsp;color: <label><input type="checkbox" id="mapAuto" checked> auto</label>
-        <input type="number" id="mapMin" step="any" placeholder="min"> <input type="number" id="mapMax" step="any" placeholder="max">
-        &nbsp;<span class="muted">hover the map for cuts, click to pin the cursor</span></div>
-      <canvas id="mapPlot"></canvas>
-      <div class="row" id="mapReadout"></div>
-      <div id="cuts"><canvas id="cutF"></canvas><canvas id="cutP"></canvas></div>
-      </div>
-      <div id="xyView" hidden>
-      <div class="row">show: <select id="xyQty"><option value="nw">nW</option><option value="dbm">dBm</option></select>
-        &nbsp;<span class="muted">the newest point is circled</span></div>
-      <canvas id="xyPlot"></canvas>
-      <div class="row" id="xyReadout"></div>
-      </div>
+      <div class="row"><b>result</b> <span id="runStatus"></span> <a id="runFile"></a> <a id="runHtml"
+        title="One HTML file: these plots (hover for values) and every setting and instrument state of the run">download interactive HTML</a></div>
+      <div id="resultView"></div>
     </div>
     <div id="expPlan"></div>
   </div>
@@ -153,6 +137,7 @@
   <div id="cfgForm"></div>
 </div>
 
+<script src="/static/results.js"></script>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -273,18 +258,6 @@ function series() {
   if (frame.x_unit === "Hz") { x = x.map(v => v / 1e9); xLabel = "GHz"; }
   else { x = x.map(v => v * 1e3); xLabel = "ms"; }
   return {x, y, xLabel, yLabel};
-}
-
-function ticks(lo, hi, n) {
-  const span = hi - lo || 1, raw = span / n, mag = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 5, 10].map(m => m * mag).find(s => s >= raw);
-  const out = [];
-  for (let t = Math.ceil(lo / step) * step; t <= hi + step * 1e-9; t += step) out.push(t);
-  return out;
-}
-function label(v) {
-  const a = Math.abs(v);
-  return a !== 0 && (a < 1e-3 || a >= 1e5) ? v.toExponential(2) : String(+v.toPrecision(6));
 }
 
 function draw() {
@@ -427,11 +400,18 @@ const SETTINGS = {
     {key: "rbw_hz", label: "RBW", unit: "kHz", scale: 1e3},
     {key: "vbw_hz", label: "VBW", unit: "kHz", scale: 1e3},
     {key: "ref_level", label: "ref level", unit: "", scale: 1},
+    {key: "sweep_time_s", label: "sweep", unit: "s", scale: 1,
+     title: "Sweep time. With the average detector make it long (about 1 s): each point averages only ~125 samples per second of sweep at RBW 100 kHz, and none at 10 ms or less."},
     // scale before unit: applied in this order, so a unit the SA changes with the scale is set back
     {key: "scale", label: "scale", options: ["LOG", "LIN"],
      title: "Vertical scale, separate from the unit. LIN only reads right from the ref level down to about 20 dB below it."},
     {key: "unit", label: "unit", options: ["DBM", "W"]},
-    {key: "detector", label: "detector", options: ["SAMP", "POS", "NEG"]},
+    // options: value, or [value, label, other read-backs]
+    {key: "detector", label: "detector",
+     options: [["SAMP", "sample"], ["POS", "peak"], ["NEG", "neg peak"], ["NORM", "normal"], ["AVER", "average", "RMS"]],
+     title: "Sample: one sample per point. Peak / neg peak: the largest / smallest. Normal: our E7405A reads it back as peak. Average: the mean of the samples in each point, in W or dB as the average type says (use a long sweep)."},
+    {key: "average_type", label: "avg type", options: [["POW", "power (RMS)"], ["LOG", "log (video)", "VID"]],
+     title: "What the average detector (and trace averaging) averages: power in W, or the dB values (Gaussian noise then reads ~2.5 dB low). The VBW filter ignores it: it averages in the vertical scale, dB on LOG (~2.5 dB low), voltage on LIN (~1 dB low)."},
   ],
   vna: [
     {key: "start_hz", label: "start", unit: "GHz", scale: 1e9},
@@ -453,7 +433,7 @@ function buildSettings() {
     let el;
     if (f.options) {
       el = document.createElement("select");
-      for (const o of f.options) el.add(new Option(o, o));
+      for (const o of f.options) el.add(new Option(...(Array.isArray(o) ? [o[1], o[0]] : [o, o])));
     } else {
       el = document.createElement("input");
       if (f.checkbox) el.type = "checkbox"; else { el.type = "number"; el.step = "any"; }
@@ -471,10 +451,20 @@ function fieldValue(f) {
   if (f.options) return el.value;
   return el.value === "" ? undefined : parseFloat(el.value) * f.scale;
 }
+// the option value a read-back stands for: "LINEAR" -> "LIN", "VID" -> "LOG" (avg type), "RMS" -> "AVER"
+function optionValue(f, v) {
+  const V = String(v).toUpperCase();
+  for (const o of f.options) {
+    const [val, , ...also] = Array.isArray(o) ? o : [o];
+    if (V.startsWith(val) || also.some(a => V.startsWith(a))) return val;
+  }
+  return v;
+}
 function sameValue(f, a, b) {
   if (typeof a === "number" && typeof b === "number") return Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a));
   if (typeof a === "boolean" || typeof b === "boolean") return !!a === !!b;
-  const A = String(a).toUpperCase(), B = String(b).toUpperCase();     // "LIN" matches "LINEAR"
+  if (f.options) return optionValue(f, a) === optionValue(f, b);
+  const A = String(a).toUpperCase(), B = String(b).toUpperCase();
   return A.startsWith(B) || B.startsWith(A);
 }
 // STAT:QUES:CAL condition, decoded by the driver (state.alignment)
@@ -498,7 +488,7 @@ function showSettings(state) {
   for (const f of SETTINGS[view]) {
     const el = $("set_" + f.key), v = state[f.key];
     if (f.checkbox) el.checked = !!v;
-    else if (f.options) el.value = f.options.find(o => String(v).toUpperCase().startsWith(o)) || v;
+    else if (f.options) el.value = optionValue(f, v);
     else el.value = v === undefined || v === null ? "" : +(v / f.scale).toPrecision(10);
   }
 }
@@ -538,7 +528,15 @@ const CONTROLS = [
      steps: [[100e6, "100 MHz"], [10e6, "10 MHz"], [1e6, "1 MHz"], [100e3, "100 kHz"]]},
     {key: "pump_power_dbm", label: "P", unit: "dBm", scale: 1, digits: 2,
      steps: [[1, "1 dB"], [0.1, "0.1 dB"], [0.01, "0.01 dB"]]}]},
-  {title: "Signal", inst: "rf_synth", enable: "probe_enable", params: [
+  // SMW200A: only CW frequency, level and RF on/off are set here; the note flags anything that
+  // makes the tone differ from what the knobs say (set on its front panel)
+  {title: "Signal", inst: "rf_probe", enable: "probe_enable",
+   note: s => [s.probe_modulation && "MOD ON", s.probe_iq && "IQ ON",
+               s.probe_freq_mode && s.probe_freq_mode !== "CW" && "FREQ MODE " + s.probe_freq_mode,
+               s.probe_power_mode && s.probe_power_mode !== "CW" && "LEVEL MODE " + s.probe_power_mode,
+               s.probe_freq_offset_hz && "FREQ OFFSET " + s.probe_freq_offset_hz + " Hz",
+               s.probe_power_offset_db && "LEVEL OFFSET " + s.probe_power_offset_db + " dB"]
+              .filter(Boolean).join(", "), params: [
     {key: "probe_frequency_hz", label: "f", unit: "GHz", scale: 1e9, digits: 6,
      steps: [[100e6, "100 MHz"], [10e6, "10 MHz"], [1e6, "1 MHz"], [100e3, "100 kHz"]]},
     {key: "probe_power_dbm", label: "P", unit: "dBm", scale: 1, digits: 2,
@@ -885,7 +883,8 @@ async function expPlan() {
   }
   for (const pt of r.points) {
     const tr = tbl.insertRow();
-    for (const [key] of r.columns) tr.insertCell().textContent = String(+Number(pt[key]).toPrecision(6));
+    for (const [key] of r.columns)       // numbers rounded; text (e.g. pump on/off) as it is
+      tr.insertCell().textContent = typeof pt[key] === "number" ? String(+pt[key].toPrecision(6)) : String(pt[key]);
   }
   wrap.append(tbl); box.append(wrap);
 }
@@ -950,7 +949,7 @@ async function showExperiments(id) {
 // ---------------------------------------------------------------- experiment runs
 // The server runs one experiment at a time. While it runs, the page asks for the result rows
 // it hasn't seen yet once a second; the last run (also a finished one) stays viewable.
-let jobView = null, jobLoading = false, mapCursor = null, mapPinned = false, mapGeom = null;
+let jobView = null, jobLoading = false;
 const jobRunning = j => ["starting", "running"].includes(j.status);
 
 async function loadJob() {
@@ -961,7 +960,7 @@ async function loadJob() {
     if (!j) { jobView = null; return; }
     if (!jobView || jobView.id !== j.id) {
       if (j.since !== 0) j = await api("GET", `/api/jobs/${j.id}?since=0`);
-      jobView = {id: j.id, rows: []}; mapCursor = null; mapPinned = false;
+      jobView = {id: j.id, rows: []}; resultReset();
     }
     if (j.since === jobView.rows.length) jobView.rows.push(...j.rows);
     jobView.axis = j.axis; jobView.info = j;
@@ -983,34 +982,10 @@ function showJob() {
     + (j.notes.length ? "  |  " + j.notes.join("; ") : "");
   $("runFile").hidden = !j.url;
   if (j.url) { $("runFile").href = j.url; $("runFile").download = j.file; $("runFile").textContent = "download " + j.file; }
-  drawResult();
+  $("runHtml").hidden = !j.html_url;
+  if (j.html_url) { $("runHtml").href = j.html_url; $("runHtml").download = j.html_url.split("/").at(-1); }
+  showResult(jobView);
 }
-// sweeps that record one number per point (axis.plot = "xy", e.g. the Y factor measurement)
-// get a plot of it vs the swept setting; the VNA sweeps get the 2D map
-function drawResult() {
-  const plot = jobView && jobView.axis ? jobView.axis.plot : null;
-  const xy = plot === "xy";
-  $("mapView").hidden = xy || plot === "none"; $("xyView").hidden = !xy;     // "none": a run without a plot
-  if (plot === "none") return;
-  xy ? drawXyResult() : drawMap();
-}
-function drawXyResult() {
-  const ax = jobView.axis, rows = jobView.rows, dbm = $("xyQty").value === "dbm";
-  if (!rows.length) {
-    const [g] = prepCanvas($("xyPlot")); g.fillText("waiting for the first point...", 20, 30);
-    $("xyReadout").textContent = ""; return;
-  }
-  const val = w => dbm ? 10 * Math.log10(Math.max(w, 1e-30) / 1e-3) : w / 1e-9;
-  const unit = dbm ? "dBm" : "nW", last = rows.at(-1);
-  drawXY($("xyPlot"), rows.map(r => r[ax.x_key]), rows.map(r => val(r[ax.y_key])),
-         `${ax.x_label} [${ax.x_unit}]`, `${ax.y_label} [${unit}]`,
-         (ax.title ? ax.title + "; " : "") + "in the order measured", rows.length - 1, true);
-  $("xyReadout").textContent = `newest: ${ax.x_label} = ${last[ax.x_key]} ${ax.x_unit}`
-    + (last.pass ? ` (pass ${last.pass + 1})` : "") + `, ${ax.y_label} = ${label(val(last[ax.y_key]))} ${unit}`
-    + (dbm || last.power_std_w === undefined ? "" : ` (sample std ${label(val(last.power_std_w))} nW)`)
-    + (last.traces ? `, ${last.traces} trace(s)` : "");
-}
-$("xyQty").onchange = drawResult;
 $("expStart").onclick = async () => {
   const pl = lastPlan;
   if (!confirm(`Start ${exp.title}?\n${pl.points.length} points, about ${fmtDuration(pl.estimate_s)}.`
@@ -1023,144 +998,6 @@ $("expStop").onclick = async () => {
   loadJob();
 };
 setInterval(() => { if (tab === "experiments" && exp && jobView && jobRunning(jobView.info)) loadJob(); }, 1000);
-
-// ---- 2D map: x = frequency, y = the swept setting (axis.y_key: VNA power, flux bias, ...),
-// gray scale (dark = low), like the notebook's Greys_r
-function prepCanvas(c) {
-  const dpr = window.devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
-  if (c.width !== W * dpr || c.height !== H * dpr) { c.width = W * dpr; c.height = H * dpr; }
-  const g = c.getContext("2d");
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
-  g.font = "12px Courier New"; g.fillStyle = "#000"; g.strokeStyle = "#000"; g.lineWidth = 1;
-  return [g, W, H];
-}
-function edges(v) {           // cell edges around sorted centers
-  if (v.length === 1) return [v[0] - 0.5, v[0] + 0.5];
-  const e = [v[0] - (v[1] - v[0]) / 2];
-  for (let i = 0; i < v.length - 1; i++) e.push((v[i] + v[i + 1]) / 2);
-  return [...e, v.at(-1) + (v.at(-1) - v.at(-2)) / 2];
-}
-function mapData() {
-  if (!jobView || !jobView.axis || !jobView.rows.length) return null;
-  const deg = $("mapQty").value === "deg";
-  const ax = jobView.axis, key = ax.y_key || "power_dbm";
-  const rows = [...jobView.rows].sort((a, b) => a[key] - b[key]);
-  // stepping the warm attenuator scales S21 itself (it is in the measured path): add it back
-  // so the map shows the qubit, not the attenuation; the saved data stays as measured
-  const att = key === "attenuation_db" && !deg;
-  return {f: ax.x.map(v => v / 1e9), p: rows.map(r => r[key]), rows, key,
-          pLabel: ax.y_label || "VNA power", pUnit: ax.y_unit ?? "dBm",
-          z: rows.map(r => deg ? r.deg : att ? r.s_db.map(v => v + r[key]) : r.s_db),
-          zLabel: deg ? "phase [deg]" : att ? "|S21| + attenuation [dB]" : "|S21| [dB]"};
-}
-function mapCursorCell(d) {   // {i: row, j: column}; default = newest row, at the dip of the lowest row
-  let i, j;
-  if (mapCursor) {
-    i = d.p.reduce((best, v, k) => Math.abs(v - mapCursor.p) < Math.abs(d.p[best] - mapCursor.p) ? k : best, 0);
-    j = mapCursor.j;
-  } else {
-    i = d.p.indexOf(jobView.rows.at(-1)[d.key]);
-    const low = d.rows[0].s_db;
-    j = low.indexOf(Math.min(...low));
-  }
-  return {i, j: Math.min(Math.max(j, 0), d.f.length - 1)};
-}
-function drawMap() {
-  const [g, W, H] = prepCanvas($("mapPlot"));
-  const d = mapData();
-  mapGeom = null;
-  if (!d) {
-    g.fillText(jobView ? "waiting for the first point..." : "no result yet", 20, 30);
-    $("mapReadout").textContent = ""; drawXY($("cutF")); drawXY($("cutP"));
-    return;
-  }
-  const L = 80, R = 95, T = 10, B = 40, pw = W - L - R, ph = H - T - B;
-  const fe = edges(d.f), pe = edges(d.p), nf = d.f.length, np = d.p.length;
-  let z0 = Infinity, z1 = -Infinity;
-  if ($("mapAuto").checked) { for (const row of d.z) for (const v of row) { if (v < z0) z0 = v; if (v > z1) z1 = v; } }
-  else { z0 = parseFloat($("mapMin").value); z1 = parseFloat($("mapMax").value); }
-  if (!(z1 > z0)) z1 = z0 + 1;
-  const X = v => L + (v - fe[0]) / (fe.at(-1) - fe[0]) * pw, Y = v => T + (1 - (v - pe[0]) / (pe.at(-1) - pe[0])) * ph;
-  const gray = v => Math.round(255 * Math.min(1, Math.max(0, (v - z0) / (z1 - z0))));
-
-  const off = document.createElement("canvas"); off.width = nf; off.height = np;
-  const img = off.getContext("2d").createImageData(nf, np);
-  for (let i = 0; i < np; i++) for (let j = 0; j < nf; j++) {
-    const k = (i * nf + j) * 4, c = gray(d.z[i][j]);
-    img.data[k] = img.data[k + 1] = img.data[k + 2] = c; img.data[k + 3] = 255;
-  }
-  off.getContext("2d").putImageData(img, 0, 0);
-  g.imageSmoothingEnabled = false;
-  for (let i = 0; i < np; i++) {     // each row gets the band between its neighbours (steps can differ)
-    const top = Y(pe[i + 1]), bottom = Y(pe[i]);
-    g.drawImage(off, 0, i, nf, 1, L, top, pw, Math.max(1, bottom - top + 0.5));
-  }
-  g.strokeRect(L, T, pw, ph);
-  g.textAlign = "center";
-  for (const t of ticks(fe[0], fe.at(-1), 8)) { g.fillText(label(t), X(t), T + ph + 14); g.beginPath(); g.moveTo(X(t), T + ph); g.lineTo(X(t), T + ph + 4); g.stroke(); }
-  g.fillText("frequency [GHz]", L + pw / 2, H - 6);
-  g.textAlign = "right";
-  for (const t of ticks(pe[0], pe.at(-1), 8)) { g.fillText(label(t), L - 6, Y(t) + 4); g.beginPath(); g.moveTo(L - 4, Y(t)); g.lineTo(L, Y(t)); g.stroke(); }
-  g.save(); g.translate(14, T + ph / 2); g.rotate(-Math.PI / 2); g.textAlign = "center"; g.fillText(`${d.pLabel} [${d.pUnit}]`, 0, 0); g.restore();
-  // color bar
-  const cx = L + pw + 14, cw = 14;
-  for (let y = 0; y < ph; y++) { const c = Math.round(255 * (1 - y / ph)); g.fillStyle = `rgb(${c},${c},${c})`; g.fillRect(cx, T + y, cw, 1.5); }
-  g.fillStyle = "#000"; g.strokeRect(cx, T, cw, ph); g.textAlign = "left";
-  for (const t of ticks(z0, z1, 6)) g.fillText(label(t), cx + cw + 4, T + (1 - (t - z0) / (z1 - z0)) * ph + 4);
-  g.save(); g.translate(W - 6, T + ph / 2); g.rotate(-Math.PI / 2); g.textAlign = "center"; g.fillText(d.zLabel, 0, 0); g.restore();
-
-  const {i, j} = mapCursorCell(d);
-  g.strokeStyle = "#d00"; g.setLineDash(mapPinned ? [] : [4, 3]); g.beginPath();
-  g.moveTo(X(d.f[j]), T); g.lineTo(X(d.f[j]), T + ph); g.moveTo(L, Y(d.p[i])); g.lineTo(L + pw, Y(d.p[i])); g.stroke();
-  g.setLineDash([]);
-  mapGeom = {L, T, pw, ph, fe, pe, d};
-  $("mapReadout").textContent = `${mapPinned ? "pinned" : "cursor"}: f = ${d.f[j].toFixed(6)} GHz, ${d.pLabel} = ${d.p[i]} ${d.pUnit} `
-    + `(${d.rows[i].averages} traces), ${d.zLabel} = ${label(d.z[i][j])}`;
-  drawXY($("cutF"), d.f, d.z[i], "frequency [GHz]", d.zLabel, `at ${d.p[i]} ${d.pUnit}`, j, false);
-  drawXY($("cutP"), d.p, d.z.map(r => r[j]), `${d.pLabel} [${d.pUnit}]`, d.zLabel, `at ${d.f[j].toFixed(6)} GHz`, i, true);
-}
-function drawXY(c, xs, ys, xLabel, yLabel, title, mark, dots) {
-  const [g, W, H] = prepCanvas(c);
-  if (!xs || !xs.length) { g.fillText("no data", 20, 30); return; }
-  const L = 80, R = 12, T = 22, B = 36, pw = W - L - R, ph = H - T - B;
-  let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-  if (x1 === x0) { x0 -= 0.5; x1 += 0.5; }
-  const pad = (y1 - y0) * 0.05 || Math.abs(y0) * 0.05 || 1; y0 -= pad; y1 += pad;
-  const X = v => L + (v - x0) / (x1 - x0) * pw, Y = v => T + (1 - (v - y0) / (y1 - y0)) * ph;
-  g.strokeStyle = "#ddd"; g.beginPath(); g.textAlign = "center";
-  for (const t of ticks(x0, x1, 6)) { g.moveTo(X(t), T); g.lineTo(X(t), T + ph); g.fillText(label(t), X(t), T + ph + 14); }
-  g.textAlign = "right";
-  for (const t of ticks(y0, y1, 5)) { g.moveTo(L, Y(t)); g.lineTo(L + pw, Y(t)); g.fillText(label(t), L - 4, Y(t) + 4); }
-  g.stroke(); g.strokeStyle = "#000"; g.strokeRect(L, T, pw, ph);
-  g.textAlign = "center"; g.fillText(xLabel, L + pw / 2, H - 4);
-  g.save(); g.translate(12, T + ph / 2); g.rotate(-Math.PI / 2); g.fillText(yLabel, 0, 0); g.restore();
-  g.textAlign = "left"; g.fillText(title, L, T - 7);
-  g.save(); g.beginPath(); g.rect(L, T, pw, ph); g.clip();
-  g.beginPath();
-  for (let k = 0; k < xs.length; k++) { const px = X(xs[k]), py = Y(ys[k]); k ? g.lineTo(px, py) : g.moveTo(px, py); }
-  g.stroke();
-  if (dots) for (let k = 0; k < xs.length; k++) { g.beginPath(); g.arc(X(xs[k]), Y(ys[k]), 2, 0, 2 * Math.PI); g.fill(); }
-  if (mark !== undefined) {
-    g.strokeStyle = "#d00"; g.lineWidth = 2; g.beginPath(); g.arc(X(xs[mark]), Y(ys[mark]), 4, 0, 2 * Math.PI); g.stroke();
-  }
-  g.restore();
-}
-function mapPick(e) {
-  if (!mapGeom) return null;
-  const r = $("mapPlot").getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
-  const {L, T, pw, ph, fe, pe, d} = mapGeom;
-  if (x < L || x > L + pw || y < T || y > T + ph) return null;
-  const f = fe[0] + (x - L) / pw * (fe.at(-1) - fe[0]), p = pe.at(-1) - (y - T) / ph * (pe.at(-1) - pe[0]);
-  let j = 0, i = 0;
-  for (let k = 1; k < d.f.length; k++) if (Math.abs(d.f[k] - f) < Math.abs(d.f[j] - f)) j = k;
-  for (let k = 1; k < d.p.length; k++) if (Math.abs(d.p[k] - p) < Math.abs(d.p[i] - p)) i = k;
-  return {p: d.p[i], j};
-}
-$("mapPlot").onmousemove = e => { if (!mapPinned) { const c = mapPick(e); if (c) { mapCursor = c; drawMap(); } } };
-$("mapPlot").onmouseleave = () => { if (!mapPinned) { mapCursor = null; drawMap(); } };
-$("mapPlot").onclick = e => { const c = mapPick(e); if (!c) return; mapPinned = !mapPinned; mapCursor = c; drawMap(); };
-for (const id of ["mapQty", "mapAuto", "mapMin", "mapMax"]) $(id).onchange = drawMap;
 
 // ---------------------------------------------------------------- settings tab
 // Built from /api/settings (labserver/settings.py). Edited fields are marked * and go to the
@@ -1342,6 +1179,7 @@ async function loadInstrumentInfo() {
   } catch (e) { message(e.message); }
 }
 (async () => {
+  resultInit($("resultView"));
   await loadInstrumentInfo();
   buildControls();
   buildSwitches();
