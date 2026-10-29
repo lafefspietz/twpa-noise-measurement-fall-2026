@@ -1,0 +1,29 @@
+23:28:25 zero span                    AVER sweep   1.0 s x  40: mean  -85.264 dBm, trace-to-trace sd 0.011 dB
+23:29:08 zero span                    AVER sweep  20.0 s x   2: mean  -85.262 dBm, trace-to-trace sd 0.011 dB
+23:30:49 zero span                    AVER sweep   0.5 s x  80: mean  -85.273 dBm, trace-to-trace sd 0.029 dB
+23:31:37 zero span                    AVER sweep   5.0 s x   8: mean  -85.262 dBm, trace-to-trace sd 0.009 dB
+23:32:34 zero span                    AVER sweep   2.0 s x  20: mean  -85.261 dBm, trace-to-trace sd 0.015 dB
+23:33:18 zero span                    AVER sweep  10.0 s x   4: mean  -85.261 dBm, trace-to-trace sd 0.008 dB
+23:34:34 5 MHz span                   AVER sweep   1.0 s x  40: mean  -85.268 dBm, trace-to-trace sd 0.025 dB
+23:35:17 5 MHz span                   AVER sweep  20.0 s x   2: mean  -85.276 dBm, trace-to-trace sd 0.006 dB
+23:36:06 5 MHz span                   AVER sweep   5.0 s x   8: mean  -85.272 dBm, trace-to-trace sd 0.013 dB
+23:37:20 zero span                    SAMP sweep   1.0 s x  40: mean  -85.312 dBm, trace-to-trace sd 0.257 dB
+23:38:03 zero span                    SAMP sweep  20.0 s x   2: mean  -85.194 dBm, trace-to-trace sd 0.425 dB
+23:38:32 restoring
+23:38:38 saved sweep_time_check.json
+Traceback (most recent call last):
+  File "C:\Users\ydkim\Desktop\NIST_Qubit_Power_Cal\twpa-noise-measurement-fall-2026\Youngdu_Kim\261021\1_ref_level_check\run_sweep_time_check.py", line 98, in <module>
+    main(sys.argv[1] if len(sys.argv) > 1 else "sweep_time_check.json")
+    ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ydkim\Desktop\NIST_Qubit_Power_Cal\twpa-noise-measurement-fall-2026\Youngdu_Kim\261021\1_ref_level_check\run_sweep_time_check.py", line 70, in main
+    measure("5 MHz span", "SAMP", SPAN, 1.0)
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ydkim\Desktop\NIST_Qubit_Power_Cal\twpa-noise-measurement-fall-2026\Youngdu_Kim\261021\1_ref_level_check\run_sweep_time_check.py", line 35, in measure
+    scpi("*OPC?")
+    ~~~~^^^^^^^^^
+  File "C:\Users\ydkim\Desktop\NIST_Qubit_Power_Cal\twpa-noise-measurement-fall-2026\Youngdu_Kim\261021\1_ref_level_check\run_ref_level_check.py", line 54, in scpi
+    return call("POST", "/api/spa/scpi", {"command": cmd})["response"]
+           ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ydkim\Desktop\NIST_Qubit_Power_Cal\twpa-noise-measurement-fall-2026\Youngdu_Kim\261021\1_ref_level_check\run_ref_level_check.py", line 42, in call
+    raise RuntimeError(f"{method} {path} {body} -> {e.code} {e.read().decode(errors='replace')}") from None
+RuntimeError: POST /api/spa/scpi {'command': '*OPC?'} -> 502 {"error":"io_error","detail":"'*OPC?': VI_ERROR_TMO (-1073807339): Timeout expired before operation completed."}

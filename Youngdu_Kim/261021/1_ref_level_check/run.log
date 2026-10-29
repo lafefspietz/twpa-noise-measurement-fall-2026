@@ -1,0 +1,45 @@
+23:10:10 att 25.0 dB, switches {'fridge_in': 'rf_probe', 'rx_source': 'fridge', 'receiver': 'spa', 'ports': {'A': 1, 'B': 2, 'C': 1, 'D': 2}}
+23:10:32 A floor, flux off, nsrc off              ref   -70  span  mean  -85.251 dBm  max  -83.28
+23:10:53 A floor, flux off, nsrc off              ref   -60  span  mean  -85.259 dBm  max  -82.82
+23:11:12 A floor, flux off, nsrc off              ref   -50  span  mean  -85.238 dBm  max  -83.07
+23:11:32 A floor, flux off, nsrc off              ref   -40  span  mean  -85.248 dBm  max  -82.86
+23:11:51 A floor, flux off, nsrc off              ref   -30  span  mean  -85.301 dBm  max  -83.15
+23:12:10 A floor, flux off, nsrc off              ref   -20  span  mean  -85.204 dBm  max  -82.99
+23:12:29 A floor, flux off, nsrc off              ref   -70  span  mean  -85.244 dBm  max  -82.95
+23:12:49 A floor, flux off, nsrc off              ref   -40  span  mean  -85.262 dBm  max  -83.02
+23:13:06 A floor zero span, flux off, nsrc off    ref   -70  zero  mean  -85.230 dBm  max  -83.92
+23:13:23 A floor zero span, flux off, nsrc off    ref   -40  zero  mean  -85.256 dBm  max  -83.72
+23:13:45 B floor, flux 0V, nsrc off               ref   -70  span  mean  -85.251 dBm  max  -83.10
+23:14:04 B floor, flux 0V, nsrc off               ref   -40  span  mean  -85.274 dBm  max  -83.18
+23:14:25 C floor, flux 0V, nsrc 0V                ref   -70  span  mean  -85.239 dBm  max  -82.98
+23:14:44 C floor, flux 0V, nsrc 0V                ref   -40  span  mean  -85.270 dBm  max  -83.09
+23:15:02 C floor zero span, flux 0V, nsrc 0V      ref   -70  zero  mean  -85.235 dBm  max  -84.04
+23:15:40 D Y factor c1 wire 0.1 V                 ref   -70  span  mean  -84.497 dBm  max  -82.04
+23:16:18 D Y factor c1 wire 0 V                   ref   -70  span  mean  -85.250 dBm  max  -83.03
+23:16:56 D Y factor c1 wire 0.1 V                 ref   -40  span  mean  -84.517 dBm  max  -82.38
+23:17:33 D Y factor c1 wire 0 V                   ref   -40  span  mean  -85.271 dBm  max  -82.81
+23:18:10 D Y factor c2 wire 0.1 V                 ref   -70  span  mean  -84.505 dBm  max  -82.41
+23:18:47 D Y factor c2 wire 0 V                   ref   -70  span  mean  -85.265 dBm  max  -83.05
+23:19:25 D Y factor c2 wire 0.1 V                 ref   -40  span  mean  -84.520 dBm  max  -82.10
+23:20:03 D Y factor c2 wire 0 V                   ref   -40  span  mean  -85.272 dBm  max  -83.17
+23:20:25 E pump on, wire 0 V                      ref   -70  span  mean  -83.486 dBm  max  -81.38
+23:20:44 E pump on, wire 0 V                      ref   -40  span  mean  -83.487 dBm  max  -81.44
+23:21:23 E pump on, wire 0.1 V                    ref   -70  span  mean  -79.882 dBm  max  -77.60
+23:21:47 F floor, VNA path, VNA output off        ref   -70  span  mean  -85.249 dBm  max  -83.06
+23:22:06 F floor, VNA path, VNA output off        ref   -40  span  mean  -85.268 dBm  max  -82.98
+23:22:27 F ZVA tone, pump off                     ref   -70  span  mean  -85.250 dBm  max  -72.28
+23:22:47 F ZVA tone, pump off                     ref   -60  span  mean  -85.240 dBm  max  -72.14
+23:23:06 F ZVA tone, pump off                     ref   -50  span  mean  -85.230 dBm  max  -72.30
+23:23:25 F ZVA tone, pump off                     ref   -40  span  mean  -85.250 dBm  max  -72.22
+23:23:44 F ZVA tone, pump off                     ref   -30  span  mean  -85.286 dBm  max  -72.22
+23:24:02 F ZVA tone zero span, pump off           ref   -70  zero  mean  -79.257 dBm  max  -78.31
+23:24:19 F ZVA tone zero span, pump off           ref   -40  zero  mean  -79.259 dBm  max  -78.35
+23:24:41 F ZVA tone, pump on                      ref   -60  span  mean  -83.473 dBm  max  -63.76
+23:25:01 F ZVA tone, pump on                      ref   -50  span  mean  -83.427 dBm  max  -63.80
+23:25:21 F ZVA tone, pump on                      ref   -40  span  mean  -83.435 dBm  max  -63.78
+23:25:45 G SMW tone, pump off                     ref   -60  span  mean  -85.285 dBm  max  -71.74
+23:26:04 G SMW tone, pump off                     ref   -40  span  mean  -85.281 dBm  max  -71.75
+23:26:26 H floor again, flux off, nsrc off        ref   -70  span  mean  -85.261 dBm  max  -82.95
+23:26:46 H floor again, flux off, nsrc off        ref   -40  span  mean  -85.275 dBm  max  -83.30
+23:26:46 restoring
+23:26:54 saved ref_level_check.json

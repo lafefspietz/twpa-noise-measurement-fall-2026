@@ -1,0 +1,16 @@
+23:39:14 twpa_vna_gain started: 1792647557309-twpa_vna_gain
+23:39:41 twpa_vna_gain done: 4 states measured notes []
+23:39:41 saved 1792647583-twpa-vna-gain-1021.json
+23:39:42 twpa_noise_spectrum started: 1792647585415-twpa_noise_spectrum
+23:42:43 twpa_noise_spectrum done: 8 spectra measured notes ['pump on, hot wire on: less than 10 dB below the reference level (-60 dBm); noise peaks may have been clipped, raise the reference level']
+23:42:44 saved 1792647762-twpa-noise-spectrum-1021.json
+23:43:13 S SMW tone, pump off                     ref   -40  span  mean  -85.286 dBm  max  -71.86
+23:43:33 S floor, pump off                        ref   -40  span  mean  -85.266 dBm  max  -83.12
+23:43:55 S SMW tone, pump on                      ref   -40  span  mean  -83.496 dBm  max  -63.27
+23:44:15 S floor, pump on                         ref   -40  span  mean  -83.484 dBm  max  -81.40
+23:44:37 S SMW tone, pump off                     ref   -40  span  mean  -85.292 dBm  max  -71.72
+23:44:57 S floor, pump off                        ref   -40  span  mean  -85.285 dBm  max  -83.22
+23:45:19 S SMW tone, pump on                      ref   -40  span  mean  -83.473 dBm  max  -63.30
+23:45:39 S floor, pump on                         ref   -40  span  mean  -83.471 dBm  max  -81.56
+23:45:39 restoring
+23:45:47 saved single_point_smw.json
